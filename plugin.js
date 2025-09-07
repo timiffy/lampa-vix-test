@@ -337,11 +337,65 @@
             call(newfile, {});
         }
         else if (file.method == 'play') {
-          // For VixSrc, the URL is already the embed URL
-          call(file, {});
+          // For VixSrc, we need to fetch the actual video stream URL
+          var vixsrcUrl = file.url;
+          
+          Lampa.Loading.start(function() {
+            Lampa.Loading.stop();
+            Lampa.Controller.toggle('content');
+            network.clear();
+          });
+          
+          // Make a request to get the actual video stream from VixSrc
+          network.timeout(15000);
+          network["native"](vixsrcUrl, function(response) {
+            Lampa.Loading.stop();
+            
+            // Try to extract the video URL from the response
+            var videoUrl = null;
+            
+            // Look for common video URL patterns in the response
+            if (typeof response === 'string') {
+              // Look for HLS streams
+              var hlsMatch = response.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
+              if (hlsMatch) {
+                videoUrl = hlsMatch[0];
+              }
+              
+              // Look for MP4 streams
+              if (!videoUrl) {
+                var mp4Match = response.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/i);
+                if (mp4Match) {
+                  videoUrl = mp4Match[0];
+                }
+              }
+              
+              // Look for other video formats
+              if (!videoUrl) {
+                var videoMatch = response.match(/https?:\/\/[^"'\s]+\.(mp4|m3u8|webm|mkv)[^"'\s]*/i);
+                if (videoMatch) {
+                  videoUrl = videoMatch[0];
+                }
+              }
+            }
+            
+            if (videoUrl) {
+              var newfile = Lampa.Arrays.clone(file);
+              newfile.url = videoUrl;
+              call(newfile, {});
+            } else {
+              Lampa.Noty.show(Lampa.Lang.translate('lampac_nolink'));
+              call(false, {});
+            }
+          }, function() {
+            Lampa.Loading.stop();
+            Lampa.Noty.show(Lampa.Lang.translate('lampac_nolink'));
+            call(false, {});
+          }, false, {
+            dataType: 'text'
+          });
         }
         else {
-          // VixSrc URLs are direct embed URLs, no need for additional processing
           call(file, {});
         }
       };
