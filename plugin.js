@@ -279,30 +279,12 @@
       this.request = function(url) {
         number_of_requests++;
         if (number_of_requests < 10) {
-          // For VixSrc, directly create the video URL using TMDB ID
-          var tmdbId = object.movie.id;
-          var isSerial = object.movie.name ? true : false;
-          var season = object.season || 1;
-          var episode = object.episode || 1;
+          // Use VixSrc API endpoint
+          var vixsrcUrl = this.requestParams(Defined.localhost + 'vixsrc');
           
-          var vixsrcUrl;
-          if (isSerial) {
-            vixsrcUrl = 'https://vixsrc.to/tv/' + tmdbId + '/' + season + '/' + episode + '?lang=it';
-          } else {
-            vixsrcUrl = 'https://vixsrc.to/movie/' + tmdbId + '?lang=it';
-          }
-          
-          // Create video object directly
-          var videos = [{
-            method: 'call',
-            url: vixsrcUrl,
-            title: object.movie.title || object.movie.name,
-            quality: {},
-            season: season,
-            episode: episode
-          }];
-          
-          this.display(videos);
+          network["native"](vixsrcUrl, this.parse.bind(this), this.doesNotAnswer.bind(this), false, {
+            dataType: 'text'
+          });
           
           clearTimeout(number_of_requests_timer);
           number_of_requests_timer = setTimeout(function() {
@@ -353,56 +335,24 @@
             call(newfile, {});
         }
         else if (file.method == 'play') {
+          // For VixSrc, the URL is already the video stream URL
           call(file, {});
         }
-        else if (file.method == 'call') {
-          // Make request to VixSrc to get the actual video stream
+        else {
+          // Make request to get the video stream URL from VixSrc
           Lampa.Loading.start(function() {
             Lampa.Loading.stop();
             Lampa.Controller.toggle('content');
             network.clear();
           });
           
-          network["native"](file.url, function(response) {
+          network["native"](file.url, function(json) {
             Lampa.Loading.stop();
-            
-            // Extract video URL from VixSrc response
-            var videoUrl = null;
-            
-            if (typeof response === 'string') {
-              // Look for video URLs
-              var hlsMatch = response.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
-              if (hlsMatch) {
-                videoUrl = hlsMatch[0];
-              }
-              
-              if (!videoUrl) {
-                var mp4Match = response.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/i);
-                if (mp4Match) {
-                  videoUrl = mp4Match[0];
-                }
-              }
-            }
-            
-            if (videoUrl) {
-              var newfile = Lampa.Arrays.clone(file);
-              newfile.url = videoUrl;
-              newfile.method = 'play';
-              call(newfile, {});
-            } else {
-              Lampa.Noty.show('Could not find video stream');
-              call(false, {});
-            }
+            call(json, json);
           }, function() {
             Lampa.Loading.stop();
-            Lampa.Noty.show('Failed to load video');
             call(false, {});
-          }, false, {
-            dataType: 'text'
           });
-        }
-        else {
-          call(file, {});
         }
       };
       this.toPlayElement = function(file) {
