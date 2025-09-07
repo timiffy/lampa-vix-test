@@ -444,7 +444,7 @@
     if (false) {
       if (Platform.is('browser') && location.host.indexOf("127.0.0.1") !== -1) {
         Noty.show('Видео открыто в playerInner', {time: 3000});
-        $.get('https://rc.bwa.to/player-inner/' + element.url);
+        // VixSrc doesn't use player-inner, removing this
         return;
       }
   
