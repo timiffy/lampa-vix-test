@@ -3,7 +3,7 @@
   
     var Defined = {
       api: 'vixsrc',
-      localhost: 'https://vixsrc.to/',
+      localhost: 'https://vixsrc.to/api/',
       apn: ''
     };
   
@@ -207,23 +207,21 @@
         Lampa.Activity.replace();
       };
       this.requestParams = function(url) {
-        // For VixSrc, we build the URL directly based on TMDB ID
-        var tmdbId = object.movie.id;
-        var isSerial = object.movie.name ? true : false;
-        var season = object.season || 1;
-        var episode = object.episode || 1;
-        
-        var baseUrl;
-        if (isSerial) {
-          // TV Show: https://vixsrc.to/tv/{tmdbId}/{season}/{episode}
-          baseUrl = 'https://vixsrc.to/tv/' + tmdbId + '/' + season + '/' + episode;
-        } else {
-          // Movie: https://vixsrc.to/movie/{tmdbId}
-          baseUrl = 'https://vixsrc.to/movie/' + tmdbId;
-        }
-        
-        // Add Italian language parameter for audio stream
-        return baseUrl + '?lang=it';
+        var query = [];
+        var card_source = object.movie.source || 'tmdb';
+        query.push('id=' + object.movie.id);
+        if (object.movie.imdb_id) query.push('imdb_id=' + (object.movie.imdb_id || ''));
+        if (object.movie.kinopoisk_id) query.push('kinopoisk_id=' + (object.movie.kinopoisk_id || ''));
+        query.push('title=' + encodeURIComponent(object.clarification ? object.search : object.movie.title || object.movie.name));
+        query.push('original_title=' + encodeURIComponent(object.movie.original_title || object.movie.original_name));
+        query.push('serial=' + (object.movie.name ? 1 : 0));
+        query.push('original_language=' + (object.movie.original_language || ''));
+        query.push('year=' + ((object.movie.release_date || object.movie.first_air_date || '0000') + '').slice(0, 4));
+        query.push('source=' + card_source);
+        query.push('clarification=' + (object.clarification ? 1 : 0));
+        query.push('similar=' + (object.similar ? true : false));
+        query.push('lang=it'); // Add Italian language for VixSrc
+        return url + (url.indexOf('?') >= 0 ? '&' : '?') + query.join('&');
       };
       this.getLastChoiceBalanser = function() {
         var last_select_balanser = Lampa.Storage.cache('online_last_balanser', 3000, {});
@@ -235,7 +233,7 @@
       };
       this.startSource = function(json) {
         return new Promise(function(resolve, reject) {
-          // VixSrc is a single source, no need for multiple sources
+          // VixSrc as a source
           sources['vixsrc'] = {
             url: 'vixsrc',
             name: 'VixSrc',
@@ -281,53 +279,30 @@
       this.request = function(url) {
         number_of_requests++;
         if (number_of_requests < 10) {
-          // For VixSrc, we need to make a request to get the video stream
-          var vixsrcUrl = this.requestParams(url);
+          // For VixSrc, directly create the video URL using TMDB ID
+          var tmdbId = object.movie.id;
+          var isSerial = object.movie.name ? true : false;
+          var season = object.season || 1;
+          var episode = object.episode || 1;
           
-          network["native"](vixsrcUrl, function(response) {
-            // Try to extract video URL from VixSrc response
-            var videoUrl = null;
-            
-            if (typeof response === 'string') {
-              // Look for HLS streams first (most common for VixSrc)
-              var hlsMatch = response.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
-              if (hlsMatch) {
-                videoUrl = hlsMatch[0];
-              }
-              
-              // Look for MP4 streams
-              if (!videoUrl) {
-                var mp4Match = response.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/i);
-                if (mp4Match) {
-                  videoUrl = mp4Match[0];
-                }
-              }
-              
-              // Look for other video formats
-              if (!videoUrl) {
-                var videoMatch = response.match(/https?:\/\/[^"'\s]+\.(webm|mkv|avi|mov)[^"'\s]*/i);
-                if (videoMatch) {
-                  videoUrl = videoMatch[0];
-                }
-              }
-            }
-            
-            if (videoUrl) {
-              var videos = [{
-                method: 'play',
-                url: videoUrl,
-                title: object.movie.title || object.movie.name,
-                quality: {},
-                season: object.season || 1,
-                episode: object.episode || 1
-              }];
-              this.display(videos);
-            } else {
-              this.doesNotAnswer();
-            }
-          }.bind(this), this.doesNotAnswer.bind(this), false, {
-            dataType: 'text'
-          });
+          var vixsrcUrl;
+          if (isSerial) {
+            vixsrcUrl = 'https://vixsrc.to/tv/' + tmdbId + '/' + season + '/' + episode + '?lang=it';
+          } else {
+            vixsrcUrl = 'https://vixsrc.to/movie/' + tmdbId + '?lang=it';
+          }
+          
+          // Create video object directly
+          var videos = [{
+            method: 'call',
+            url: vixsrcUrl,
+            title: object.movie.title || object.movie.name,
+            quality: {},
+            season: season,
+            episode: episode
+          }];
+          
+          this.display(videos);
           
           clearTimeout(number_of_requests_timer);
           number_of_requests_timer = setTimeout(function() {
@@ -378,24 +353,56 @@
             call(newfile, {});
         }
         else if (file.method == 'play') {
-          // For VixSrc, the URL is already the video stream URL
           call(file, {});
         }
-        else {
-          // Make request to get the video stream URL from VixSrc
+        else if (file.method == 'call') {
+          // Make request to VixSrc to get the actual video stream
           Lampa.Loading.start(function() {
             Lampa.Loading.stop();
             Lampa.Controller.toggle('content');
             network.clear();
           });
           
-          network["native"](file.url, function(json) {
+          network["native"](file.url, function(response) {
             Lampa.Loading.stop();
-            call(json, json);
+            
+            // Extract video URL from VixSrc response
+            var videoUrl = null;
+            
+            if (typeof response === 'string') {
+              // Look for video URLs
+              var hlsMatch = response.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
+              if (hlsMatch) {
+                videoUrl = hlsMatch[0];
+              }
+              
+              if (!videoUrl) {
+                var mp4Match = response.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/i);
+                if (mp4Match) {
+                  videoUrl = mp4Match[0];
+                }
+              }
+            }
+            
+            if (videoUrl) {
+              var newfile = Lampa.Arrays.clone(file);
+              newfile.url = videoUrl;
+              newfile.method = 'play';
+              call(newfile, {});
+            } else {
+              Lampa.Noty.show('Could not find video stream');
+              call(false, {});
+            }
           }, function() {
             Lampa.Loading.stop();
+            Lampa.Noty.show('Failed to load video');
             call(false, {});
+          }, false, {
+            dataType: 'text'
           });
+        }
+        else {
+          call(file, {});
         }
       };
       this.toPlayElement = function(file) {
@@ -537,7 +544,75 @@
           })
         }, this.getChoice());
       };
-      // VixSrc doesn't need parsing, removing this function
+      this.parse = function(str) {
+        try {
+          // Try to parse as JSON first (VixSrc API response)
+          var json = Lampa.Arrays.decodeJson(str, {});
+          
+          if (json && json.length > 0) {
+            // VixSrc API returned a list of videos
+            var videos = json.map(function(item) {
+              return {
+                method: 'play',
+                url: item.url || item.stream_url,
+                title: item.title || object.movie.title || object.movie.name,
+                quality: item.quality || {},
+                season: item.season || object.season || 1,
+                episode: item.episode || object.episode || 1
+              };
+            });
+            
+            this.activity.loader(false);
+            this.display(videos);
+          } else {
+            // Fallback: try to extract video URL from HTML response
+            var videoUrl = null;
+            
+            if (typeof str === 'string') {
+              // Look for HLS streams first (most common for VixSrc)
+              var hlsMatch = str.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
+              if (hlsMatch) {
+                videoUrl = hlsMatch[0];
+              }
+              
+              // Look for MP4 streams
+              if (!videoUrl) {
+                var mp4Match = str.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/i);
+                if (mp4Match) {
+                  videoUrl = mp4Match[0];
+                }
+              }
+              
+              // Look for other video formats
+              if (!videoUrl) {
+                var videoMatch = str.match(/https?:\/\/[^"'\s]+\.(webm|mkv|avi|mov)[^"'\s]*/i);
+                if (videoMatch) {
+                  videoUrl = videoMatch[0];
+                }
+              }
+            }
+            
+            if (videoUrl) {
+              // Create video object like BwaRC does
+              var videos = [{
+                method: 'play',
+                url: videoUrl,
+                title: object.movie.title || object.movie.name,
+                quality: {},
+                season: object.season || 1,
+                episode: object.episode || 1
+              }];
+              
+              this.activity.loader(false);
+              this.display(videos);
+            } else {
+              this.doesNotAnswer();
+            }
+          }
+        } catch (e) {
+          this.doesNotAnswer(e);
+        }
+      };
       this.similars = function(json) {
         var _this6 = this;
         scroll.clear();
