@@ -213,13 +213,17 @@
         var season = object.season || 1;
         var episode = object.episode || 1;
         
+        var baseUrl;
         if (isSerial) {
           // TV Show: https://vixsrc.to/tv/{tmdbId}/{season}/{episode}
-          return 'https://vixsrc.to/tv/' + tmdbId + '/' + season + '/' + episode;
+          baseUrl = 'https://vixsrc.to/tv/' + tmdbId + '/' + season + '/' + episode;
         } else {
           // Movie: https://vixsrc.to/movie/{tmdbId}
-          return 'https://vixsrc.to/movie/' + tmdbId;
+          baseUrl = 'https://vixsrc.to/movie/' + tmdbId;
         }
+        
+        // Add Italian language parameter for audio stream
+        return baseUrl + '?lang=it';
       };
       this.getLastChoiceBalanser = function() {
         var last_select_balanser = Lampa.Storage.cache('online_last_balanser', 3000, {});
@@ -337,7 +341,7 @@
             call(newfile, {});
         }
         else if (file.method == 'play') {
-          // For VixSrc, we need to fetch the actual video stream URL
+          // For VixSrc, we need to make a request to get the actual video stream
           var vixsrcUrl = file.url;
           
           Lampa.Loading.start(function() {
@@ -346,35 +350,42 @@
             network.clear();
           });
           
-          // Make a request to get the actual video stream from VixSrc
-          network.timeout(15000);
+          // Make request to VixSrc to get the video stream
+          network.timeout(30000);
           network["native"](vixsrcUrl, function(response) {
             Lampa.Loading.stop();
             
-            // Try to extract the video URL from the response
             var videoUrl = null;
             
-            // Look for common video URL patterns in the response
             if (typeof response === 'string') {
-              // Look for HLS streams
-              var hlsMatch = response.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
-              if (hlsMatch) {
+              // Look for video URLs in the response
+              // VixSrc typically serves HLS streams
+              var hlsMatch = response.match(/https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/gi);
+              if (hlsMatch && hlsMatch.length > 0) {
                 videoUrl = hlsMatch[0];
               }
               
               // Look for MP4 streams
               if (!videoUrl) {
-                var mp4Match = response.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/i);
-                if (mp4Match) {
+                var mp4Match = response.match(/https?:\/\/[^"'\s<>]+\.mp4[^"'\s<>]*/gi);
+                if (mp4Match && mp4Match.length > 0) {
                   videoUrl = mp4Match[0];
                 }
               }
               
               // Look for other video formats
               if (!videoUrl) {
-                var videoMatch = response.match(/https?:\/\/[^"'\s]+\.(mp4|m3u8|webm|mkv)[^"'\s]*/i);
-                if (videoMatch) {
+                var videoMatch = response.match(/https?:\/\/[^"'\s<>]+\.(webm|mkv|avi|mov)[^"'\s<>]*/gi);
+                if (videoMatch && videoMatch.length > 0) {
                   videoUrl = videoMatch[0];
+                }
+              }
+              
+              // Look for JSON data that might contain video URLs
+              if (!videoUrl) {
+                var jsonMatch = response.match(/"file":\s*"([^"]+)"/gi);
+                if (jsonMatch && jsonMatch.length > 0) {
+                  videoUrl = jsonMatch[0].match(/"file":\s*"([^"]+)"/)[1];
                 }
               }
             }
@@ -384,15 +395,25 @@
               newfile.url = videoUrl;
               call(newfile, {});
             } else {
-              Lampa.Noty.show(Lampa.Lang.translate('lampac_nolink'));
+              Lampa.Noty.show('Could not extract video URL from VixSrc');
               call(false, {});
             }
           }, function() {
             Lampa.Loading.stop();
-            Lampa.Noty.show(Lampa.Lang.translate('lampac_nolink'));
+            Lampa.Noty.show('Failed to connect to VixSrc');
             call(false, {});
           }, false, {
-            dataType: 'text'
+            dataType: 'text',
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Referer': 'https://vixsrc.to/',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Accept-Encoding': 'gzip, deflate, br',
+              'DNT': '1',
+              'Connection': 'keep-alive',
+              'Upgrade-Insecure-Requests': '1'
+            }
           });
         }
         else {
