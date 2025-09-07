@@ -281,17 +281,54 @@
       this.request = function(url) {
         number_of_requests++;
         if (number_of_requests < 10) {
-          // For VixSrc, we create a direct embed URL
+          // For VixSrc, we need to make a request to get the video stream
           var vixsrcUrl = this.requestParams(url);
-          var videos = [{
-            method: 'play',
-            url: vixsrcUrl,
-            title: object.movie.title || object.movie.name,
-            quality: {},
-            season: object.season || 1,
-            episode: object.episode || 1
-          }];
-          this.display(videos);
+          
+          network["native"](vixsrcUrl, function(response) {
+            // Try to extract video URL from VixSrc response
+            var videoUrl = null;
+            
+            if (typeof response === 'string') {
+              // Look for HLS streams first (most common for VixSrc)
+              var hlsMatch = response.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
+              if (hlsMatch) {
+                videoUrl = hlsMatch[0];
+              }
+              
+              // Look for MP4 streams
+              if (!videoUrl) {
+                var mp4Match = response.match(/https?:\/\/[^"'\s]+\.mp4[^"'\s]*/i);
+                if (mp4Match) {
+                  videoUrl = mp4Match[0];
+                }
+              }
+              
+              // Look for other video formats
+              if (!videoUrl) {
+                var videoMatch = response.match(/https?:\/\/[^"'\s]+\.(webm|mkv|avi|mov)[^"'\s]*/i);
+                if (videoMatch) {
+                  videoUrl = videoMatch[0];
+                }
+              }
+            }
+            
+            if (videoUrl) {
+              var videos = [{
+                method: 'play',
+                url: videoUrl,
+                title: object.movie.title || object.movie.name,
+                quality: {},
+                season: object.season || 1,
+                episode: object.episode || 1
+              }];
+              this.display(videos);
+            } else {
+              this.doesNotAnswer();
+            }
+          }.bind(this), this.doesNotAnswer.bind(this), false, {
+            dataType: 'text'
+          });
+          
           clearTimeout(number_of_requests_timer);
           number_of_requests_timer = setTimeout(function() {
             number_of_requests = 0;
@@ -341,83 +378,24 @@
             call(newfile, {});
         }
         else if (file.method == 'play') {
-          // For VixSrc, we need to make a request to get the actual video stream
-          var vixsrcUrl = file.url;
-          
+          // For VixSrc, the URL is already the video stream URL
+          call(file, {});
+        }
+        else {
+          // Make request to get the video stream URL from VixSrc
           Lampa.Loading.start(function() {
             Lampa.Loading.stop();
             Lampa.Controller.toggle('content');
             network.clear();
           });
           
-          // Make request to VixSrc to get the video stream
-          network.timeout(30000);
-          network["native"](vixsrcUrl, function(response) {
+          network["native"](file.url, function(json) {
             Lampa.Loading.stop();
-            
-            var videoUrl = null;
-            
-            if (typeof response === 'string') {
-              // Look for video URLs in the response
-              // VixSrc typically serves HLS streams
-              var hlsMatch = response.match(/https?:\/\/[^"'\s<>]+\.m3u8[^"'\s<>]*/gi);
-              if (hlsMatch && hlsMatch.length > 0) {
-                videoUrl = hlsMatch[0];
-              }
-              
-              // Look for MP4 streams
-              if (!videoUrl) {
-                var mp4Match = response.match(/https?:\/\/[^"'\s<>]+\.mp4[^"'\s<>]*/gi);
-                if (mp4Match && mp4Match.length > 0) {
-                  videoUrl = mp4Match[0];
-                }
-              }
-              
-              // Look for other video formats
-              if (!videoUrl) {
-                var videoMatch = response.match(/https?:\/\/[^"'\s<>]+\.(webm|mkv|avi|mov)[^"'\s<>]*/gi);
-                if (videoMatch && videoMatch.length > 0) {
-                  videoUrl = videoMatch[0];
-                }
-              }
-              
-              // Look for JSON data that might contain video URLs
-              if (!videoUrl) {
-                var jsonMatch = response.match(/"file":\s*"([^"]+)"/gi);
-                if (jsonMatch && jsonMatch.length > 0) {
-                  videoUrl = jsonMatch[0].match(/"file":\s*"([^"]+)"/)[1];
-                }
-              }
-            }
-            
-            if (videoUrl) {
-              var newfile = Lampa.Arrays.clone(file);
-              newfile.url = videoUrl;
-              call(newfile, {});
-            } else {
-              Lampa.Noty.show('Could not extract video URL from VixSrc');
-              call(false, {});
-            }
+            call(json, json);
           }, function() {
             Lampa.Loading.stop();
-            Lampa.Noty.show('Failed to connect to VixSrc');
             call(false, {});
-          }, false, {
-            dataType: 'text',
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Referer': 'https://vixsrc.to/',
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-              'Accept-Language': 'en-US,en;q=0.9',
-              'Accept-Encoding': 'gzip, deflate, br',
-              'DNT': '1',
-              'Connection': 'keep-alive',
-              'Upgrade-Insecure-Requests': '1'
-            }
           });
-        }
-        else {
-          call(file, {});
         }
       };
       this.toPlayElement = function(file) {
