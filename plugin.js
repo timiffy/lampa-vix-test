@@ -425,7 +425,7 @@
           url.searchParams.set('h', '1');
         }
         
-        return url.toString();
+        return PROXY_URL + encodeURIComponent(url.toString());
       } catch (e) {
         console.error('Error extracting playlist URL:', e);
         return null;
@@ -456,7 +456,7 @@
             
             if (playlistUrl) {
               var playFile = Lampa.Arrays.clone(file);
-              playFile.url = playlistUrl;
+              playFile.url = PROXY_URL + encodeURIComponent(playlistUrl);
               
               call(playFile, {
                 headers: {
@@ -477,6 +477,7 @@
         } else {
           // For movies, use the URL directly
           var playFile = Lampa.Arrays.clone(file);
+          playFile.url = PROXY_URL + encodeURIComponent(playFile.url);
           
           call(playFile, {
             headers: {
