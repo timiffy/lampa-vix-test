@@ -8,6 +8,7 @@
   };
 
   var balansers_with_search;
+
   
   var unic_id = Lampa.Storage.get('lampac_unic_id', '');
   if (!unic_id) {
@@ -277,8 +278,9 @@
     this.request = function(url) {
       number_of_requests++;
       if (number_of_requests < 10) {
-        // For VixSrc, we create a direct embed URL
-        var vixsrcUrl = this.requestParams(url);
+        var proxyUrl = 'https://vix.blumbergos2.workers.dev/';
+        // For VixSrc, we create a direct embed URL via proxy
+        var vixsrcUrl = proxyUrl + this.requestParams(url);
         var videos = [{
           method: 'play',
           url: vixsrcUrl,
@@ -1371,4 +1373,5 @@ else if (element.url) {
   if (!window.vixsrc_plugin) startPlugin();
 
 })();
+
 
