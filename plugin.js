@@ -284,9 +284,7 @@
         return;
       }
     
-      var proxyUrl = 'https://vix.blumbergos2.workers.dev/';
-    
-      // Fetch HTML page
+      // Fetch the HTML normally — do NOT add proxy yet
       network.native(this.requestParams(), function(html) {
         try {
           var videoData = _this.extractVideoData(html);
@@ -295,30 +293,16 @@
             var videos = [];
     
             videoData.streams.forEach(function(stream) {
-              var streamUrl = stream.url;
-    
-              // If there is a masterPlaylist token, append it
-              if (videoData.masterPlaylist && videoData.masterPlaylist.params) {
-                var params = [];
-                for (var key in videoData.masterPlaylist.params) {
-                  if (videoData.masterPlaylist.params[key])
-                    params.push(key + '=' + encodeURIComponent(videoData.masterPlaylist.params[key]));
-                }
-                if (params.length)
-                  streamUrl += (streamUrl.indexOf('?') > -1 ? '&' : '?') + params.join('&');
-              }
-    
-              // Prepend the proxy to bypass CORS
-              streamUrl = proxyUrl + streamUrl;
-    
               videos.push({
-                method: 'play',
-                url: streamUrl,
+                method: 'play',       // just the basic info
+                url: stream.url,      // raw URL, no proxy yet
                 title: (object.movie.title || object.movie.name) + ' - ' + stream.name,
                 quality: {},
                 season: object.season || 1,
                 episode: object.episode || 1,
-                active: stream.active
+                active: stream.active,
+                auth_params: videoData.masterPlaylist ? videoData.masterPlaylist.params : null,
+                master_url: videoData.masterPlaylist ? videoData.masterPlaylist.url : null
               });
             });
     
@@ -352,22 +336,35 @@
       });
     };
     this.getFileUrl = function(file, call) {
-      var _this = this;
-      
-      if(Lampa.Storage.field('player') !== 'inner' && file.stream && Lampa.Platform.is('apple')){
-          var newfile = Lampa.Arrays.clone(file);
-          newfile.method = 'play';
-          newfile.url = file.stream;
-          call(newfile, {});
+      var proxy = 'https://vix.blumbergos2.workers.dev/';
+      var url = file.url;
+    
+      // Append masterPlaylist token if exists
+      if (file.auth_params && file.master_url) {
+        var params = [];
+        for (var key in file.auth_params) {
+          if (file.auth_params[key])
+            params.push(key + '=' + encodeURIComponent(file.auth_params[key]));
+        }
+        if (params.length)
+          url += (url.indexOf('?') > -1 ? '&' : '?') + params.join('&');
       }
-      else if (file.method == 'play') {
-        // For VixSrc, the URL is already the embed URL
-        call(file, {});
-      }
-      else {
-        // VixSrc URLs are direct embed URLs, no need for additional processing
-        call(file, {});
-      }
+    
+      // Prepend proxy to bypass CORS
+      url = proxy + url;
+    
+      call({
+        method: 'play',
+        url: url,
+        headers: {
+          'Referer': 'https://vixsrc.to/',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        },
+        title: file.title,
+        quality: file.quality,
+        season: file.season,
+        episode: file.episode
+      });
     };
     this.toPlayElement = function(file) {
       var play = {
