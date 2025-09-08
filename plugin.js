@@ -268,7 +268,7 @@
      */
     // Update the PROXY_URL format
     
-    var PROXY_URL = 'https://vix.blumbergos2.workers.dev/?url='; // Note the query parameter format
+    var PROXY_URL = 'https://vix.blumbergos2.workers.dev/video.m3u8?url='; // Note the query parameter format
 
     // Fix the search and find functions
     this.search = function() {
