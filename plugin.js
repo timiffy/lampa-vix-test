@@ -266,20 +266,24 @@
     /**
      * Начать поиск
      */
-    this.search = function() { //this.loading(true)
+    // Update the PROXY_URL format
+    var PROXY_URL = 'https://vix.blumbergos2.workers.dev/?url='; // Note the query parameter format
+
+    // Fix the search and find functions
+    this.search = function() {
+      this.loading(true);
       this.filter({
         source: filter_sources
       }, this.getChoice());
       this.find();
     };
-    this.find = function() {
-      this.request(this.requestParams(source));
-    };
-    // Add this at the top of your plugin after the Defined object
-    var PROXY_URL = 'https://vix.blumbergos2.workers.dev/'; // Replace with your Cloudflare Worker URL
 
-    // Updated request function using the TypeScript logic
-    this.request = function(url) {
+    this.find = function() {
+      this.request();
+    };
+
+    // Completely rewrite the request function
+    this.request = function() {
       var _this = this;
       number_of_requests++;
       
@@ -287,27 +291,61 @@
         // Create the VixSrc embed URL
         var vixsrcUrl = this.requestParams();
         
-        // Use proxy to fetch the HTML page
+        // Use proxy with query parameter format
         var proxyUrl = PROXY_URL + encodeURIComponent(vixsrcUrl);
+        
+        console.log('Fetching from:', proxyUrl);
         
         network.native(proxyUrl, function(html) {
           try {
+            console.log('Got HTML response, length:', html.length);
+            
             // Extract the playlist URL using the regex from TypeScript
             var playlistUrl = _this.extractPlaylistUrl(html);
             
             if (playlistUrl) {
-              var videos = [{
-                method: 'play',
-                url: playlistUrl,
-                title: object.movie.title || object.movie.name,
-                quality: {},
-                season: object.season || 1,
-                episode: object.episode || 1,
-                stream_name: 'VixSrc'
-              }];
+              console.log('Extracted playlist URL:', playlistUrl);
+              
+              // Create videos array with proper structure for the filter system
+              var videos = [];
+              
+              if (object.movie.name) {
+                // For TV shows, create episodes
+                var season = object.season || 1;
+                var totalEpisodes = object.movie.number_of_episodes || 20; // Default fallback
+                
+                for (var ep = 1; ep <= Math.min(totalEpisodes, 50); ep++) {
+                  videos.push({
+                    method: 'play',
+                    url: playlistUrl, // We'll modify this per episode in getFileUrl
+                    title: 'Episode ' + ep,
+                    season: season,
+                    episode: ep,
+                    info: 'VixSrc',
+                    quality: 'HD'
+                  });
+                }
+                
+                // Update filter data
+                filter_find.season = [{title: 'Season ' + season, url: ''}];
+                filter_find.voice = [{title: 'VixSrc', url: ''}];
+              } else {
+                // For movies, single video
+                videos.push({
+                  method: 'play',
+                  url: playlistUrl,
+                  title: object.movie.title || object.movie.name,
+                  info: 'VixSrc',
+                  quality: 'HD'
+                });
+                
+                // Update filter data for movies
+                filter_find.voice = [{title: 'VixSrc', url: ''}];
+              }
               
               _this.display(videos);
             } else {
+              console.error('Could not extract playlist URL');
               _this.empty();
             }
           } catch (e) {
@@ -319,9 +357,12 @@
           number_of_requests_timer = setTimeout(function() {
             number_of_requests = 0;
           }, 4000);
+          
+          _this.loading(false);
         }, function(error) {
           console.error('VixSrc request error:', error);
           _this.empty();
+          _this.loading(false);
         }, false, {
           dataType: 'text'
         });
@@ -330,15 +371,34 @@
       }
     };
 
-    // New function to extract playlist URL using the TypeScript regex logic
+    // Updated extractPlaylistUrl with better error handling
     this.extractPlaylistUrl = function(html) {
       try {
-        // Use the exact regex pattern from the TypeScript code
-        var regexPattern = /token': '(.+)',\n[ ]+'expires': '(.+)',\n.+\n.+\n.+url: '(.+)',\n[ ]+}\n[ ]+window.canPlayFHD = (false|true)/;
-        var playlistData = regexPattern.exec(html);
+        console.log('Attempting to extract playlist URL from HTML...');
+        
+        // Try multiple regex patterns in case the format varies
+        var patterns = [
+          // Original pattern
+          /token': '(.+)',\n[ ]+'expires': '(.+)',\n.+\n.+\n.+url: '(.+)',\n[ ]+}\n[ ]+window.canPlayFHD = (false|true)/,
+          // More flexible patterns
+          /token':\s*'([^']+)',\s*\n\s*'expires':\s*'([^']+)',[\s\S]*?url:\s*'([^']+)',[\s\S]*?window\.canPlayFHD\s*=\s*(false|true)/,
+          // Even more flexible
+          /'token':\s*'([^']+)'[\s\S]*?'expires':\s*'([^']+)'[\s\S]*?url:\s*'([^']+)'[\s\S]*?canPlayFHD\s*=\s*(false|true)/
+        ];
+        
+        var playlistData = null;
+        for (var i = 0; i < patterns.length; i++) {
+          playlistData = patterns[i].exec(html);
+          if (playlistData) {
+            console.log('Matched pattern', i + 1);
+            break;
+          }
+        }
         
         if (!playlistData) {
-          console.error('Could not extract playlist data from HTML');
+          console.error('Could not extract playlist data with any pattern');
+          // Debug: log a sample of the HTML to see the structure
+          console.log('HTML sample:', html.substring(0, 2000));
           return null;
         }
         
@@ -346,6 +406,8 @@
         var expires = playlistData[2];
         var basePlaylistUrl = playlistData[3];
         var canPlayFHD = playlistData[4];
+        
+        console.log('Extracted data:', {token, expires, basePlaylistUrl, canPlayFHD});
         
         // Parse the URL and add parameters
         var url = new URL(basePlaylistUrl);
@@ -370,7 +432,7 @@
       }
     };
 
-    // Simplified getFileUrl function since we're getting the direct playlist URL
+    // Updated getFileUrl to handle per-episode URLs for TV shows
     this.getFileUrl = function(file, call) {
       var _this = this;
       
@@ -381,24 +443,48 @@
         call(newfile, {});
       }
       else if (file.method == 'play') {
-        // The URL is already authenticated and ready to use
-        // But we might need to proxy it as well
-        var finalUrl = file.url;
-        
-        // If the URL is from vixcloud, we might need to proxy it too
-        if (finalUrl.includes('vixcloud.co')) {
-          finalUrl = PROXY_URL + encodeURIComponent(finalUrl);
+        // For TV shows, we need to get the URL for the specific episode
+        if (file.season && file.episode && object.movie.name) {
+          // Generate the episode-specific URL
+          var episodeVixsrcUrl = 'https://vixsrc.to/tv/' + object.movie.id + '/' + file.season + '/' + file.episode;
+          var episodeProxyUrl = PROXY_URL + encodeURIComponent(episodeVixsrcUrl);
+          
+          console.log('Fetching episode URL:', episodeProxyUrl);
+          
+          network.native(episodeProxyUrl, function(html) {
+            var playlistUrl = _this.extractPlaylistUrl(html);
+            
+            if (playlistUrl) {
+              var playFile = Lampa.Arrays.clone(file);
+              playFile.url = playlistUrl;
+              
+              call(playFile, {
+                headers: {
+                  'Referer': 'https://vixsrc.to/',
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+              });
+            } else {
+              console.error('Could not get episode playlist URL');
+              call(file, {});
+            }
+          }, function(error) {
+            console.error('Error fetching episode:', error);
+            call(file, {});
+          }, false, {
+            dataType: 'text'
+          });
+        } else {
+          // For movies, use the URL directly
+          var playFile = Lampa.Arrays.clone(file);
+          
+          call(playFile, {
+            headers: {
+              'Referer': 'https://vixsrc.to/',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+          });
         }
-        
-        var playFile = Lampa.Arrays.clone(file);
-        playFile.url = finalUrl;
-        
-        call(playFile, {
-          headers: {
-            'Referer': 'https://vixsrc.to/',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-          }
-        });
       }
       else {
         call(file, {});
