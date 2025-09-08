@@ -425,7 +425,7 @@
           url.searchParams.set('h', '1');
         }
         
-        return PROXY_URL + encodeURIComponent(url.toString());
+        return url.toString();  // raw URL, no proxy here
       } catch (e) {
         console.error('Error extracting playlist URL:', e);
         return null;
