@@ -449,8 +449,8 @@
           if (playlistUrl) {
             console.log('Got playlist URL:', playlistUrl);
             var playFile = Lampa.Arrays.clone(file);
-            // DON'T proxy the playlist URL itself - return it directly
-            playFile.url = playlistUrl;
+            playFile.url = PROXY_URL + encodeURIComponent(playlistUrl);
+            console.log('About to play final URL:', playFile.url);
             
             // The headers might not be necessary, but keeping them just in case
             call(playFile, {
@@ -563,7 +563,7 @@
               if (playlist.length > 1) first.playlist = playlist;
               
               if (first.url) {
-                console.log('About to play final URL:', first.url);
+                console.log('About to play:', first.url);
                 var element = first;
                 element.isonline = true;
                 
