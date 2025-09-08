@@ -603,12 +603,21 @@ else if (element.url) {
     if (element.url.endsWith('.m3u8')) {
       Lampa.Player.play({
         title: element.title || 'Stream',
-        url: element.url,
-        direct: false,   // tell Lampa to handle as HLS
+        file: element.url,       // use "file", not "url"
+        direct: false,           // tells Lampa to treat as HLS
+        quality: {
+          'auto': element.url    // at least one quality option
+        },
+        playlist: [              // minimal playlist wrapper
+          {
+            title: element.title || 'Stream',
+            file: element.url
+          }
+        ],
         timeline: 0
       });
     } else {
-    Player.play(element);
+      Player.play(element);
     }
   }
 }
