@@ -601,23 +601,32 @@ else if (element.url) {
       Noty.show('Внешний плеер можно указать в init.conf (playerInner)', {time: 3000});
 
     if (element.url.endsWith('.m3u8')) {
-      Lampa.Player.play({
+      // build the proper object
+      var hlsItem = {
         title: element.title || 'Stream',
-        file: element.url,       // use "file", not "url"
-        direct: false,           // tells Lampa to treat as HLS
+        file: element.url,
+        direct: false,
         quality: {
-          'auto': element.url    // at least one quality option
+          'auto': element.url
         },
-        playlist: [              // minimal playlist wrapper
+        playlist: [
           {
             title: element.title || 'Stream',
             file: element.url
           }
         ],
         timeline: 0
-      });
+      };
+    
+      // 1. set player state
+      Player.play(hlsItem);
+    
+      // 2. actually launch Lampa player UI
+      Lampa.Player.play(hlsItem);
+    
     } else {
       Player.play(element);
+      Lampa.Player.play(element);
     }
   }
 }
