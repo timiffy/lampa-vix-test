@@ -267,6 +267,7 @@
      * Начать поиск
      */
     // Update the PROXY_URL format
+    
     var PROXY_URL = 'https://vix.blumbergos2.workers.dev/?url='; // Note the query parameter format
 
     // Fix the search and find functions
@@ -562,18 +563,12 @@
               if (playlist.length > 1) first.playlist = playlist;
               
               if (first.url) {
-                console.log('About to play:', first.url);
+                console.log('About to play PROXIED URL:', first.url);
                 var element = first;
                 element.isonline = true;
                 
-                // Simplified player launch - let Lampa handle the HLS
-                if (element.url.endsWith('.m3u8')) {
-                  console.log('Detected HLS stream, launching player');
-                  Lampa.Player.play(element);
-                } else {
-                  Lampa.Player.play(element);
-                }
-                
+                // Launch player with the proxied URL
+                Lampa.Player.play(element);
                 Lampa.Player.playlist(playlist);
                 item.mark();
                 _this5.updateBalanser(balanser);
