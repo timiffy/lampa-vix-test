@@ -1,7 +1,7 @@
 (function() {
     'use strict';
 
-    // ⚠️ IMPORTANT: Replace with your actual Vercel deployment URL
+
     const PROXY_BASE = 'https://frplma.vercel.app/api/proxy/';
     
     let network = Lampa.Reguest;
