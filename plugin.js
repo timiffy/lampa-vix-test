@@ -276,59 +276,72 @@
       this.request(this.requestParams(source));
     };
     this.request = function(url) {
+      var _this = this;
       number_of_requests++;
       if (number_of_requests < 10) {
         var proxyUrl = 'https://vix.blumbergos2.workers.dev/';
         // For VixSrc, we create a direct embed URL via proxy
         var vixsrcUrl = proxyUrl + this.requestParams(url);
-        var videos = [{
-          method: 'play',
-          url: vixsrcUrl,
-          title: object.movie.title || object.movie.name,
-          quality: {},
-          season: object.season || 1,
-          episode: object.episode || 1
-        }];
-        this.display(videos);
-        clearTimeout(number_of_requests_timer);
-        number_of_requests_timer = setTimeout(function() {
-          number_of_requests = 0;
-        }, 4000);
-      } else this.empty();
-    };
-    this.parseJsonDate = function(str, name) {
+        // Fetch the HTML page to extract video data
+    network.native(vixsrcUrl, function(html) {
       try {
-        var html = $('<div>' + str + '</div>');
-        var elems = [];
-        html.find(name).each(function() {
-          var item = $(this);
-          var data = JSON.parse(item.attr('data-json'));
-          var season = item.attr('s');
-          var episode = item.attr('e');
-          var text = item.text();
-          if (!object.movie.name) {
-            if (text.match(/\d+p/i)) {
-              if (!data.quality) {
-                data.quality = {};
-                data.quality[text] = data.url;
-              }
-              text = object.movie.title;
-            }
-            if (text == 'По умолчанию') {
-              text = object.movie.title;
-            }
-          }
-          if (episode) data.episode = parseInt(episode);
-          if (season) data.season = parseInt(season);
-          if (text) data.text = text;
-          data.active = item.hasClass('active');
-          elems.push(data);
-        });
-        return elems;
+        // Extract the video data from the HTML
+        var videoData = _this.extractVideoData(html);
+        
+        if (videoData && videoData.streams && videoData.streams.length > 0) {
+          var videos = [];
+          
+          // Process each stream
+          videoData.streams.forEach(function(stream, index) {
+            var video = {
+              method: 'stream',
+              url: stream.url,
+              stream_url: stream.url,
+              title: (object.movie.title || object.movie.name) + ' - ' + stream.name,
+              quality: {},
+              season: object.season || 1,
+              episode: object.episode || 1,
+              stream_name: stream.name,
+              active: stream.active,
+              auth_params: videoData.masterPlaylist ? videoData.masterPlaylist.params : null,
+              master_url: videoData.masterPlaylist ? videoData.masterPlaylist.url : null
+            };
+            
+            videos.push(video);
+          });
+          
+          // Sort videos to put active stream first
+          videos.sort(function(a, b) {
+            return b.active - a.active;
+          });
+          
+          _this.display(videos);
+        } else {
+          _this.empty();
+        }
       } catch (e) {
-        return [];
+        console.error('VixSrc extraction error:', e);
+        _this.empty();
       }
-    };
+      
+      clearTimeout(number_of_requests_timer);
+      number_of_requests_timer = setTimeout(function() {
+        number_of_requests = 0;
+      }, 4000);
+    }, function(error) {
+      console.error('VixSrc request error:', error);
+      _this.empty();
+    }, false, {
+      dataType: 'text',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Referer': 'https://vixsrc.to/'
+      }
+    });
+  } else {
+    this.empty();
+  }
+};
     this.getFileUrl = function(file, call) {
       var _this = this;
       
