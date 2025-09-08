@@ -599,10 +599,19 @@ else if (element.url) {
   else {
     if (Platform.is('browser') && location.host.indexOf("127.0.0.1") !== -1)
       Noty.show('Внешний плеер можно указать в init.conf (playerInner)', {time: 3000});
+
+    if (element.url.endsWith('.m3u8')) {
+      Lampa.Player.play({
+        title: element.title || 'Stream',
+        url: element.url,
+        direct: false,   // tell Lampa to handle as HLS
+        timeline: 0
+      });
+    } else {
     Player.play(element);
+    }
   }
 }
-                Lampa.Player.play(element);
                 Lampa.Player.playlist(playlist);
                 item.mark();
                 _this5.updateBalanser(balanser);
