@@ -269,328 +269,328 @@
     // Update the PROXY_URL format
     var PROXY_URL = 'https://vix.blumbergos2.workers.dev/?url='; // Note the query parameter format
 
-    // Fix the search and find functions
-    this.search = function() {
-      this.loading(true);
-      this.filter({
-        source: filter_sources
-      }, this.getChoice());
-      this.find();
-    };
+      // Fix the search and find functions
+      this.search = function() {
+        this.loading(true);
+        this.filter({
+          source: filter_sources
+        }, this.getChoice());
+        this.find();
+      };
 
-    this.find = function() {
-      this.request();
-    };
+      this.find = function() {
+        this.request();
+      };
 
-    // Generate the correct VixSrc URL based on content type
-    this.getVixSrcUrl = function(movieId, season, episode) {
-      if (season && episode && object.movie.name) {
-        // TV show episode - note the trailing slash
-        return 'https://vixsrc.to/tv/' + movieId + '/' + season + '/' + episode + '/';
-      } else {
-        // Movie
-        return 'https://vixsrc.to/movie/' + movieId;
-      }
-    };
+      // Generate the correct VixSrc URL based on content type
+      this.getVixSrcUrl = function(movieId, season, episode) {
+        if (season && episode && object.movie.name) {
+          // TV show episode - note the trailing slash
+          return 'https://vixsrc.to/tv/' + movieId + '/' + season + '/' + episode + '/';
+        } else {
+          // Movie
+          return 'https://vixsrc.to/movie/' + movieId;
+        }
+      };
 
-    // Completely rewrite the request function
-    this.request = function() {
-      var _this = this;
-      number_of_requests++;
-      
-      if (number_of_requests < 10) {
-        // Get the movie ID - you may need to adjust this based on how your object is structured
-        var movieId = object.movie.id || object.movie.imdb_id;
-        var season = object.season || 1;
+      // Completely rewrite the request function
+      this.request = function() {
+        var _this = this;
+        number_of_requests++;
         
-        // Create the VixSrc URL for the first episode/movie to get available content
-        var vixsrcUrl = this.getVixSrcUrl(movieId, season, 1);
-        
-        // Use proxy with query parameter format
-        var proxyUrl = PROXY_URL + encodeURIComponent(vixsrcUrl);
-        
-        console.log('Fetching from:', proxyUrl);
-        
-        network.native(proxyUrl, function(html) {
-          try {
-            console.log('Got HTML response, length:', html.length);
-            
-            // Create videos array with proper structure for the filter system
-            var videos = [];
-            
-            if (object.movie.name) {
-              // For TV shows, create episodes
-              var totalEpisodes = object.movie.number_of_episodes || 20; // Default fallback
+        if (number_of_requests < 10) {
+          // Get the movie ID - you may need to adjust this based on how your object is structured
+          var movieId = object.movie.id || object.movie.imdb_id;
+          var season = object.season || 1;
+          
+          // Create the VixSrc URL for the first episode/movie to get available content
+          var vixsrcUrl = this.getVixSrcUrl(movieId, season, 1);
+          
+          // Use proxy with query parameter format
+          var proxyUrl = PROXY_URL + encodeURIComponent(vixsrcUrl);
+          
+          console.log('Fetching from:', proxyUrl);
+          
+          network.native(proxyUrl, function(html) {
+            try {
+              console.log('Got HTML response, length:', html.length);
               
-              for (var ep = 1; ep <= Math.min(totalEpisodes, 50); ep++) {
+              // Create videos array with proper structure for the filter system
+              var videos = [];
+              
+              if (object.movie.name) {
+                // For TV shows, create episodes
+                var totalEpisodes = object.movie.number_of_episodes || 20; // Default fallback
+                
+                for (var ep = 1; ep <= Math.min(totalEpisodes, 50); ep++) {
+                  videos.push({
+                    method: 'play',
+                    url: '', // Will be populated in getFileUrl
+                    title: 'Episode ' + ep,
+                    season: season,
+                    episode: ep,
+                    info: 'VixSrc',
+                    quality: 'HD',
+                    movieId: movieId
+                  });
+                }
+                
+                // Update filter data
+                filter_find.season = [{title: 'Season ' + season, url: ''}];
+                filter_find.voice = [{title: 'VixSrc', url: ''}];
+              } else {
+                // For movies, single video
                 videos.push({
                   method: 'play',
                   url: '', // Will be populated in getFileUrl
-                  title: 'Episode ' + ep,
-                  season: season,
-                  episode: ep,
+                  title: object.movie.title || object.movie.name,
                   info: 'VixSrc',
                   quality: 'HD',
                   movieId: movieId
                 });
+                
+                // Update filter data for movies
+                filter_find.voice = [{title: 'VixSrc', url: ''}];
               }
               
-              // Update filter data
-              filter_find.season = [{title: 'Season ' + season, url: ''}];
-              filter_find.voice = [{title: 'VixSrc', url: ''}];
-            } else {
-              // For movies, single video
-              videos.push({
-                method: 'play',
-                url: '', // Will be populated in getFileUrl
-                title: object.movie.title || object.movie.name,
-                info: 'VixSrc',
-                quality: 'HD',
-                movieId: movieId
-              });
-              
-              // Update filter data for movies
-              filter_find.voice = [{title: 'VixSrc', url: ''}];
+              _this.display(videos);
+            } catch (e) {
+              console.error('VixSrc extraction error:', e);
+              _this.empty();
             }
             
-            _this.display(videos);
-          } catch (e) {
-            console.error('VixSrc extraction error:', e);
+            clearTimeout(number_of_requests_timer);
+            number_of_requests_timer = setTimeout(function() {
+              number_of_requests = 0;
+            }, 4000);
+            
+            _this.loading(false);
+          }, function(error) {
+            console.error('VixSrc request error:', error);
             _this.empty();
+            _this.loading(false);
+          }, false, {
+            dataType: 'text'
+          });
+        } else {
+          this.empty();
+        }
+      };
+
+      // Updated extractPlaylistUrl with the exact regex from the working implementation
+      this.extractPlaylistUrl = function(html) {
+        try {
+          console.log('Attempting to extract playlist URL from HTML...');
+          
+          // Use the exact regex from the working implementation
+          var regex = /token': '(.+)',\n[ ]+'expires': '(.+)',\n.+\n.+\n.+url: '(.+)',\n[ ]+}\n[ ]+window.canPlayFHD = (false|true)/;
+          var playlistData = regex.exec(html);
+          
+          if (!playlistData) {
+            console.error('Could not extract playlist data');
+            // Debug: log a sample of the HTML to see the structure
+            console.log('HTML sample:', html.substring(0, 2000));
+            return null;
           }
           
-          clearTimeout(number_of_requests_timer);
-          number_of_requests_timer = setTimeout(function() {
-            number_of_requests = 0;
-          }, 4000);
+          var token = playlistData[1];
+          var expires = playlistData[2];
+          var basePlaylistUrl = playlistData[3];
+          var canPlayFHD = playlistData[4];
           
-          _this.loading(false);
-        }, function(error) {
-          console.error('VixSrc request error:', error);
-          _this.empty();
-          _this.loading(false);
-        }, false, {
-          dataType: 'text'
-        });
-      } else {
-        this.empty();
-      }
-    };
-
-    // Updated extractPlaylistUrl with the exact regex from the working implementation
-    this.extractPlaylistUrl = function(html) {
-      try {
-        console.log('Attempting to extract playlist URL from HTML...');
-        
-        // Use the exact regex from the working implementation
-        var regex = /token': '(.+)',\n[ ]+'expires': '(.+)',\n.+\n.+\n.+url: '(.+)',\n[ ]+}\n[ ]+window.canPlayFHD = (false|true)/;
-        var playlistData = regex.exec(html);
-        
-        if (!playlistData) {
-          console.error('Could not extract playlist data');
-          // Debug: log a sample of the HTML to see the structure
-          console.log('HTML sample:', html.substring(0, 2000));
+          console.log('Extracted data:', {token, expires, basePlaylistUrl, canPlayFHD});
+          
+          // Parse the URL and add parameters exactly like the working implementation
+          var url = new URL(basePlaylistUrl);
+          var b = url.searchParams.get('b');
+          
+          // Add authentication parameters
+          url.searchParams.set('token', token);
+          url.searchParams.set('expires', expires);
+          
+          if (b !== null) {
+            url.searchParams.set('b', b);
+          }
+          
+          if (canPlayFHD === 'true') {
+            url.searchParams.set('h', '1');
+          }
+          
+          return url.toString();
+        } catch (e) {
+          console.error('Error extracting playlist URL:', e);
           return null;
         }
-        
-        var token = playlistData[1];
-        var expires = playlistData[2];
-        var basePlaylistUrl = playlistData[3];
-        var canPlayFHD = playlistData[4];
-        
-        console.log('Extracted data:', {token, expires, basePlaylistUrl, canPlayFHD});
-        
-        // Parse the URL and add parameters exactly like the working implementation
-        var url = new URL(basePlaylistUrl);
-        var b = url.searchParams.get('b');
-        
-        // Add authentication parameters
-        url.searchParams.append('token', token);
-        url.searchParams.append('expires', expires);
-        
-        if (b !== null) {
-          url.searchParams.append('b', b);
-        }
-        
-        if (canPlayFHD === 'true') {
-          url.searchParams.append('h', '1');
-        }
-        
-        return url.toString();
-      } catch (e) {
-        console.error('Error extracting playlist URL:', e);
-        return null;
-      }
-    };
-
-    // Updated getFileUrl to handle per-episode URLs for TV shows
-    this.getFileUrl = function(file, call) {
-      var _this = this;
-      
-      if (Lampa.Storage.field('player') !== 'inner' && file.stream && Lampa.Platform.is('apple')) {
-        var newfile = Lampa.Arrays.clone(file);
-        newfile.method = 'play';
-        newfile.url = file.stream;
-        call(newfile, {});
-        return;
-      }
-      
-      if (file.method == 'play') {
-        // Generate the correct VixSrc URL for this specific content
-        var vixsrcUrl = this.getVixSrcUrl(file.movieId, file.season, file.episode);
-        var proxyUrl = PROXY_URL + encodeURIComponent(vixsrcUrl);
-        
-        console.log('Fetching content URL:', proxyUrl);
-        
-        network.native(proxyUrl, function(html) {
-          var playlistUrl = _this.extractPlaylistUrl(html);
-          
-          if (playlistUrl) {
-            console.log('Got playlist URL:', playlistUrl);
-            var playFile = Lampa.Arrays.clone(file);
-            // DON'T proxy the playlist URL itself - return it directly
-            playFile.url = playlistUrl;
-            
-            // The headers might not be necessary, but keeping them just in case
-            call(playFile, {
-              headers: {
-                'Referer': 'https://vixsrc.to/',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-              }
-            });
-          } else {
-            console.error('Could not get playlist URL');
-            call(file, {});
-          }
-        }, function(error) {
-          console.error('Error fetching content:', error);
-          call(file, {});
-        }, false, {
-          dataType: 'text'
-        });
-      } else {
-        call(file, {});
-      }
-    };
-
-    this.toPlayElement = function(file) {
-      var play = {
-        title: file.title,
-        url: file.url,
-        quality: file.qualitys,
-        timeline: file.timeline,
-        subtitles: file.subtitles,
-        callback: file.mark
       };
-      return play;
-    };
 
-    this.orUrlReserve = function(data) {
-      if (data.url && typeof data.url == 'string' && data.url.indexOf(" or ") !== -1) {
-        var urls = data.url.split(" or ");
-        data.url = urls[0];
-        data.url_reserve = urls[1];
-      }
-    };
-
-    this.setDefaultQuality = function(data) {
-      if (Lampa.Arrays.getKeys(data.quality).length) {
-        for (var q in data.quality) {
-          if (parseInt(q) == Lampa.Storage.field('video_quality_default')) {
-            data.url = data.quality[q];
-            this.orUrlReserve(data);
-          }
-          if (data.quality[q].indexOf(" or ") !== -1)
-            data.quality[q] = data.quality[q].split(" or ")[0];
+      // Updated getFileUrl to handle per-episode URLs for TV shows
+      this.getFileUrl = function(file, call) {
+        var _this = this;
+        
+        if (Lampa.Storage.field('player') !== 'inner' && file.stream && Lampa.Platform.is('apple')) {
+          var newfile = Lampa.Arrays.clone(file);
+          newfile.method = 'play';
+          newfile.url = file.stream;
+          call(newfile, {});
+          return;
         }
-      }
-    };
+        
+        if (file.method == 'play') {
+          // Generate the correct VixSrc URL for this specific content
+          var vixsrcUrl = this.getVixSrcUrl(file.movieId, file.season, file.episode);
+          var proxyUrl = PROXY_URL + encodeURIComponent(vixsrcUrl);
+          
+          console.log('Fetching content URL:', proxyUrl);
+          
+          network.native(proxyUrl, function(html) {
+            var playlistUrl = _this.extractPlaylistUrl(html);
+            
+            if (playlistUrl) {
+              console.log('Got playlist URL:', playlistUrl);
+              var playFile = Lampa.Arrays.clone(file);
+              // DON'T proxy the playlist URL itself - return it directly
+              playFile.url = playlistUrl;
+              
+              // The headers might not be necessary, but keeping them just in case
+              call(playFile, {
+                headers: {
+                  'Referer': 'https://vixsrc.to/',
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+              });
+            } else {
+              console.error('Could not get playlist URL');
+              call(file, {});
+            }
+          }, function(error) {
+            console.error('Error fetching content:', error);
+            call(file, {});
+          }, false, {
+            dataType: 'text'
+          });
+        } else {
+          call(file, {});
+        }
+      };
 
-    this.display = function(videos) {
-      var _this5 = this;
-      this.draw(videos, {
-        onEnter: function onEnter(item, html) {
-          _this5.getFileUrl(item, function(json, json_call) {
-            if (json && json.url) {
-              var playlist = [];
-              var first = _this5.toPlayElement(item);
-              first.url = json.url;
-              first.headers = json_call.headers || json.headers;
-              first.quality = json_call.quality || item.qualitys;
-              first.hls_manifest_timeout = json_call.hls_manifest_timeout || json.hls_manifest_timeout;
-              first.subtitles = json.subtitles;
-              first.vast_url = json.vast_url;
-              first.vast_msg = json.vast_msg;
-              _this5.orUrlReserve(first);
-              _this5.setDefaultQuality(first);
-              
-              if (item.season) {
-                videos.forEach(function(elem) {
-                  var cell = _this5.toPlayElement(elem);
-                  if (elem == item) {
-                    cell.url = json.url;
-                  } else {
-                    // For other episodes, set up lazy loading
-                    cell.url = function(call) {
-                      _this5.getFileUrl(elem, function(stream, stream_json) {
-                        if (stream.url) {
-                          cell.url = stream.url;
-                          cell.quality = stream_json.quality || elem.qualitys;
-                          cell.subtitles = stream.subtitles;
-                          _this5.orUrlReserve(cell);
-                          _this5.setDefaultQuality(cell);
-                          elem.mark();
-                        } else {
-                          cell.url = '';
-                          Lampa.Noty.show(Lampa.Lang.translate('lampac_nolink'));
-                        }
-                        call();
-                      }, function() {
-                        cell.url = '';
-                        call();
-                      });
-                    };
-                  }
-                  _this5.orUrlReserve(cell);
-                  _this5.setDefaultQuality(cell);
-                  playlist.push(cell);
-                });
-              } else {
-                playlist.push(first);
-              }
-              
-              if (playlist.length > 1) first.playlist = playlist;
-              
-              if (first.url) {
-                console.log('About to play:', first.url);
-                var element = first;
-                element.isonline = true;
+      this.toPlayElement = function(file) {
+        var play = {
+          title: file.title,
+          url: file.url,
+          quality: file.qualitys,
+          timeline: file.timeline,
+          subtitles: file.subtitles,
+          callback: file.mark
+        };
+        return play;
+      };
+
+      this.orUrlReserve = function(data) {
+        if (data.url && typeof data.url == 'string' && data.url.indexOf(" or ") !== -1) {
+          var urls = data.url.split(" or ");
+          data.url = urls[0];
+          data.url_reserve = urls[1];
+        }
+      };
+
+      this.setDefaultQuality = function(data) {
+        if (Lampa.Arrays.getKeys(data.quality).length) {
+          for (var q in data.quality) {
+            if (parseInt(q) == Lampa.Storage.field('video_quality_default')) {
+              data.url = data.quality[q];
+              this.orUrlReserve(data);
+            }
+            if (data.quality[q].indexOf(" or ") !== -1)
+              data.quality[q] = data.quality[q].split(" or ")[0];
+          }
+        }
+      };
+
+      this.display = function(videos) {
+        var _this5 = this;
+        this.draw(videos, {
+          onEnter: function onEnter(item, html) {
+            _this5.getFileUrl(item, function(json, json_call) {
+              if (json && json.url) {
+                var playlist = [];
+                var first = _this5.toPlayElement(item);
+                first.url = json.url;
+                first.headers = json_call.headers || json.headers;
+                first.quality = json_call.quality || item.qualitys;
+                first.hls_manifest_timeout = json_call.hls_manifest_timeout || json.hls_manifest_timeout;
+                first.subtitles = json.subtitles;
+                first.vast_url = json.vast_url;
+                first.vast_msg = json.vast_msg;
+                _this5.orUrlReserve(first);
+                _this5.setDefaultQuality(first);
                 
-                // Simplified player launch - let Lampa handle the HLS
-                if (element.url.endsWith('.m3u8')) {
-                  console.log('Detected HLS stream, launching player');
-                  Lampa.Player.play(element);
+                if (item.season) {
+                  videos.forEach(function(elem) {
+                    var cell = _this5.toPlayElement(elem);
+                    if (elem == item) {
+                      cell.url = json.url;
+                    } else {
+                      // For other episodes, set up lazy loading
+                      cell.url = function(call) {
+                        _this5.getFileUrl(elem, function(stream, stream_json) {
+                          if (stream.url) {
+                            cell.url = stream.url;
+                            cell.quality = stream_json.quality || elem.qualitys;
+                            cell.subtitles = stream.subtitles;
+                            _this5.orUrlReserve(cell);
+                            _this5.setDefaultQuality(cell);
+                            elem.mark();
+                          } else {
+                            cell.url = '';
+                            Lampa.Noty.show(Lampa.Lang.translate('lampac_nolink'));
+                          }
+                          call();
+                        }, function() {
+                          cell.url = '';
+                          call();
+                        });
+                      };
+                    }
+                    _this5.orUrlReserve(cell);
+                    _this5.setDefaultQuality(cell);
+                    playlist.push(cell);
+                  });
                 } else {
-                  Lampa.Player.play(element);
+                  playlist.push(first);
                 }
                 
-                Lampa.Player.playlist(playlist);
-                item.mark();
-                _this5.updateBalanser(balanser);
+                if (playlist.length > 1) first.playlist = playlist;
+                
+                if (first.url) {
+                  console.log('About to play:', first.url);
+                  var element = first;
+                  element.isonline = true;
+                  
+                  // Simplified player launch - let Lampa handle the HLS
+                  if (element.url.endsWith('.m3u8')) {
+                    console.log('Detected HLS stream, launching player');
+                    Lampa.Player.play(element);
+                  } else {
+                    Lampa.Player.play(element);
+                  }
+                  
+                  Lampa.Player.playlist(playlist);
+                  item.mark();
+                  _this5.updateBalanser(balanser);
+                } else {
+                  Lampa.Noty.show(Lampa.Lang.translate('lampac_nolink'));
+                }
               } else {
                 Lampa.Noty.show(Lampa.Lang.translate('lampac_nolink'));
               }
-            } else {
-              Lampa.Noty.show(Lampa.Lang.translate('lampac_nolink'));
-            }
-          }, true);
-        },
-        onContextMenu: function onContextMenu(item, html, data, call) {
-          _this5.getFileUrl(item, function(stream) {
-            call({
-              file: stream.url,
-              quality: item.qualitys
-            });
+            }, true);
+          },
+          onContextMenu: function onContextMenu(item, html, data, call) {
+            _this5.getFileUrl(item, function(stream) {
+              call({
+                file: stream.url,
+                quality: item.qualitys
+              });
           }, true);
         }
       });
