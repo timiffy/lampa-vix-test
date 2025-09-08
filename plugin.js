@@ -284,106 +284,195 @@
     };
 
     // Generate the correct VixSrc URL based on content type
-    this.getPlaylist = function(id, type, season = null, episode = null) {
-      try {
-            let url = type === 'tv' && season && episode 
-                ? `https://vixsrc.to/tv/${id}/${season}/${episode}/`
-                : `https://vixsrc.to/movie/${id}`;
-            
-            console.log('VixSrc fetching playlist from:', url);
-            
-            const response = await fetch(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Referer': 'https://vixsrc.to/'
-                }
-            });
-            
-            const text = await response.text();
-            
-            const playlistMatch = text.match(
-                /token': '([^']+)',[\s\n]+expires': '([^']+)',[\s\S]*?url: '([^']+)',[\s\n]+}[\s\n]+window\.canPlayFHD = (false|true)/
-            );
-            
-            if (!playlistMatch) {
-                console.error('Could not extract playlist data from VixSrc');
-                return null;
-            }
-            
-            const [, token, expires, playlistUrl, canPlayFHD] = playlistMatch;
-            const urlObj = new URL(playlistUrl);
-            const b = urlObj.searchParams.get("b");
-            
-            urlObj.searchParams.append("token", token);
-            urlObj.searchParams.append("expires", expires);
-            if (b !== null) urlObj.searchParams.append("b", b);
-            if (canPlayFHD === "true") urlObj.searchParams.append("h", "1");
-            
-            console.log('VixSrc playlist generated successfully');
-            return urlObj.toString();
-            
-        } catch (error) {
-            console.error('Error getting VixSrc playlist:', error);
-            return null;
-        }
-    }
+    this.getVixSrcUrl = function(movieId, season, episode) {
+      if (season && episode && object.movie.name) {
+        // TV show episode - note the trailing slash
+        return 'https://vixsrc.to/tv/' + movieId + '/' + season + '/' + episode + '/';
+      } else {
+        // Movie
+        return 'https://vixsrc.to/movie/' + movieId;
+      }
+    };
 
     // Completely rewrite the request function
-    this.setupHlsProxy = function(hls) {
-      if (!hls || !hls.config) return;
+    this.request = function() {
+      var _this = this;
+      number_of_requests++;
+      
+      if (number_of_requests < 10) {
+        // Get the movie ID - you may need to adjust this based on how your object is structured
+        var movieId = object.movie.id || object.movie.imdb_id;
+        var season = object.season || 1;
         
-        console.log('Setting up VixSrc HLS proxy');
+        // Create the VixSrc URL for the first episode/movie to get available content
+        var vixsrcUrl = this.getVixSrcUrl(movieId, season, 1);
         
-        hls.config.xhrSetup = function(xhr, url) {
-            const proxyUrl = PROXY_BASE + encodeURIComponent(url);
-            console.log('VixSrc proxying:', url);
-            xhr.open('GET', proxyUrl, true);
-        };
-
-        // Also handle fetch requests if available
-        if (hls.config.loader && typeof hls.config.loader === 'function') {
-            const originalLoader = hls.config.loader;
-            hls.config.loader = function(config) {
-                if (config.url) {
-                    config.url = PROXY_BASE + encodeURIComponent(config.url);
-                }
-                return originalLoader.call(this, config);
-            };
-        }
-    }
-
-    // Hook into Lampa's player initialization
-    function hookPlayer() {
-        let originalPlay = Lampa.Player.play;
+        // Use proxy with query parameter format
+        var proxyUrl = PROXY_URL + encodeURIComponent(vixsrcUrl);
         
-        Lampa.Player.play = function(video) {
-            let player = originalPlay.call(this, video);
+        console.log('Fetching from:', proxyUrl);
+        
+        network.native(proxyUrl, function(html) {
+          try {
+            console.log('Got HTML response, length:', html.length);
             
-            // Setup proxy when HLS is ready
-            if (player && video.url && video.url.includes('vixsrc')) {
-                let setupAttempts = 0;
-                let checkHls = setInterval(() => {
-                    setupAttempts++;
-                    
-                    try {
-                        if (player.video && player.video() && player.video().hls) {
-                            setupHlsProxy(player.video().hls);
-                            clearInterval(checkHls);
-                        } else if (setupAttempts > 50) {
-                            clearInterval(checkHls);
-                            console.warn('VixSrc: HLS not found after 5 seconds');
-                        }
-                    } catch (e) {
-                        if (setupAttempts > 50) {
-                            clearInterval(checkHls);
-                        }
-                    }
-                }, 100);
+            // Create videos array with proper structure for the filter system
+            var videos = [];
+            
+            if (object.movie.name) {
+              // For TV shows, create episodes
+              var totalEpisodes = object.movie.number_of_episodes || 20; // Default fallback
+              
+              for (var ep = 1; ep <= Math.min(totalEpisodes, 50); ep++) {
+                videos.push({
+                  method: 'play',
+                  url: '', // Will be populated in getFileUrl
+                  title: 'Episode ' + ep,
+                  season: season,
+                  episode: ep,
+                  info: 'VixSrc',
+                  quality: 'HD',
+                  movieId: movieId
+                });
+              }
+              
+              // Update filter data
+              filter_find.season = [{title: 'Season ' + season, url: ''}];
+              filter_find.voice = [{title: 'VixSrc', url: ''}];
+            } else {
+              // For movies, single video
+              videos.push({
+                method: 'play',
+                url: '', // Will be populated in getFileUrl
+                title: object.movie.title || object.movie.name,
+                info: 'VixSrc',
+                quality: 'HD',
+                movieId: movieId
+              });
+              
+              // Update filter data for movies
+              filter_find.voice = [{title: 'VixSrc', url: ''}];
             }
             
-            return player;
-        };
-    }
+            _this.display(videos);
+          } catch (e) {
+            console.error('VixSrc extraction error:', e);
+            _this.empty();
+          }
+          
+          clearTimeout(number_of_requests_timer);
+          number_of_requests_timer = setTimeout(function() {
+            number_of_requests = 0;
+          }, 4000);
+          
+          _this.loading(false);
+        }, function(error) {
+          console.error('VixSrc request error:', error);
+          _this.empty();
+          _this.loading(false);
+        }, false, {
+          dataType: 'text'
+        });
+      } else {
+        this.empty();
+      }
+    };
+
+    // Updated extractPlaylistUrl with the exact regex from the working implementation
+    this.extractPlaylistUrl = function(html) {
+      try {
+        console.log('Attempting to extract playlist URL from HTML...');
+        
+        // Use the exact regex from the working implementation
+        var regex = /token': '(.+)',\n[ ]+'expires': '(.+)',\n.+\n.+\n.+url: '(.+)',\n[ ]+}\n[ ]+window.canPlayFHD = (false|true)/;
+        var playlistData = regex.exec(html);
+        
+        if (!playlistData) {
+          console.error('Could not extract playlist data');
+          // Debug: log a sample of the HTML to see the structure
+          console.log('HTML sample:', html.substring(0, 2000));
+          return null;
+        }
+        
+        var token = playlistData[1];
+        var expires = playlistData[2];
+        var basePlaylistUrl = playlistData[3];
+        var canPlayFHD = playlistData[4];
+        
+        console.log('Extracted data:', {token, expires, basePlaylistUrl, canPlayFHD});
+        
+        // Parse the URL and add parameters exactly like the working implementation
+        var url = new URL(basePlaylistUrl);
+        var b = url.searchParams.get('b');
+        
+        // Add authentication parameters
+        url.searchParams.set('token', token);
+        url.searchParams.set('expires', expires);
+        
+        if (b !== null) {
+          url.searchParams.set('b', b);
+        }
+        
+        if (canPlayFHD === 'true') {
+          url.searchParams.set('h', '1');
+        }
+        
+        return url.toString();
+      } catch (e) {
+        console.error('Error extracting playlist URL:', e);
+        return null;
+      }
+    };
+
+    // Updated getFileUrl to handle per-episode URLs for TV shows
+    this.getFileUrl = function(file, call) {
+      var _this = this;
+      
+      if (Lampa.Storage.field('player') !== 'inner' && file.stream && Lampa.Platform.is('apple')) {
+        var newfile = Lampa.Arrays.clone(file);
+        newfile.method = 'play';
+        newfile.url = file.stream;
+        call(newfile, {});
+        return;
+      }
+      
+      if (file.method == 'play') {
+        // Generate the correct VixSrc URL for this specific content
+        var vixsrcUrl = this.getVixSrcUrl(file.movieId, file.season, file.episode);
+        var proxyUrl = PROXY_URL + encodeURIComponent(vixsrcUrl);
+        
+        console.log('Fetching content URL:', proxyUrl);
+        
+        network.native(proxyUrl, function(html) {
+          var playlistUrl = _this.extractPlaylistUrl(html);
+          
+          if (playlistUrl) {
+            console.log('Got playlist URL:', playlistUrl);
+            var playFile = Lampa.Arrays.clone(file);
+            playFile.url = PROXY_URL + encodeURIComponent(playlistUrl);
+            console.log('About to play final URL:', playFile.url);
+            
+            // The headers might not be necessary, but keeping them just in case
+            call(playFile, {
+              headers: {
+                'Referer': 'https://vixsrc.to/',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+              }
+            });
+          } else {
+            console.error('Could not get playlist URL');
+            call(file, {});
+          }
+        }, function(error) {
+          console.error('Error fetching content:', error);
+          call(file, {});
+        }, false, {
+          dataType: 'text'
+        });
+      } else {
+        call(file, {});
+      }
+    };
 
     this.toPlayElement = function(file) {
       var play = {
@@ -1432,6 +1521,4 @@
   if (!window.vixsrc_plugin) startPlugin();
 
 })();
-
-
 
