@@ -566,7 +566,30 @@
                 console.log('About to play:', first.url);
                 var element = first;
                 element.isonline = true;
-                
+
+                // ===== ADD XHR INTERCEPT HERE =====
+                // Store original XHR
+                const originalXHROpen = XMLHttpRequest.prototype.open;
+
+                // Intercept all XHR requests
+                XMLHttpRequest.prototype.open = function(method, url, ...args) {
+                  let modifiedUrl = url;
+                  
+                  // Handle direct vixsrc.to requests (audio/subtitle playlists)
+                  if (typeof url === 'string' && url.includes('vixsrc.to') && !url.includes('vix.blumbergos2.workers.dev')) {
+                    modifiedUrl = `https://vix.blumbergos2.workers.dev/video.m3u8?url=${encodeURIComponent(url)}`;
+                    console.log(`[XHR Intercept] Redirected: ${url} -> ${modifiedUrl}`);
+                  }
+                  // Handle enc.key requests
+                  else if (typeof url === 'string' && url.includes('enc.key')) {
+                    modifiedUrl = 'https://vix.blumbergos2.workers.dev/storage/enc.key';
+                    console.log(`[XHR Intercept] Redirected enc.key: ${url} -> ${modifiedUrl}`);
+                  }
+                  
+                  return originalXHROpen.call(this, method, modifiedUrl, ...args);
+                };
+                // ===== END XHR INTERCEPT =====
+
                 // Simplified player launch - let Lampa handle the HLS
                 if (element.url.endsWith('.m3u8')) {
                   console.log('Detected HLS stream, launching player');
@@ -578,6 +601,13 @@
                 Lampa.Player.playlist(playlist);
                 item.mark();
                 _this5.updateBalanser(balanser);
+
+                // Optional: Restore original XHR after a delay
+                setTimeout(() => {
+                  XMLHttpRequest.prototype.open = originalXHROpen;
+                  console.log('[XHR Intercept] Restored original XHR');
+                }, 30000); // 30 seconds should be enough for the stream to start
+                
               } else {
                 Lampa.Noty.show(Lampa.Lang.translate('lampac_nolink'));
               }
