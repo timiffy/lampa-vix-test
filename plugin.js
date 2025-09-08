@@ -275,245 +275,74 @@
       this.request(this.requestParams(source));
     };
     this.request = function(url) {
-      var _this = this;
       number_of_requests++;
-      
       if (number_of_requests < 10) {
-        // Create the VixSrc embed URL
-        var vixsrcUrl = this.requestParams();
-        
-        // Fetch the HTML page to extract video data
-        network.native(vixsrcUrl, function(html) {
-          try {
-            // Extract the video data from the HTML
-            var videoData = _this.extractVideoData(html);
-            
-            if (videoData && videoData.streams && videoData.streams.length > 0) {
-              var videos = [];
-              
-              // Process each stream
-              videoData.streams.forEach(function(stream, index) {
-                var video = {
-                  method: 'stream',
-                  url: stream.url,
-                  stream_url: stream.url,
-                  title: (object.movie.title || object.movie.name) + ' - ' + stream.name,
-                  quality: {},
-                  season: object.season || 1,
-                  episode: object.episode || 1,
-                  stream_name: stream.name,
-                  active: stream.active,
-                  auth_params: videoData.masterPlaylist ? videoData.masterPlaylist.params : null,
-                  master_url: videoData.masterPlaylist ? videoData.masterPlaylist.url : null
-                };
-                
-                videos.push(video);
-              });
-              
-              // Sort videos to put active stream first
-              videos.sort(function(a, b) {
-                return b.active - a.active;
-              });
-              
-              _this.display(videos);
-            } else {
-              _this.empty();
-            }
-          } catch (e) {
-            console.error('VixSrc extraction error:', e);
-            _this.empty();
-          }
-          
-          clearTimeout(number_of_requests_timer);
-          number_of_requests_timer = setTimeout(function() {
-            number_of_requests = 0;
-          }, 4000);
-        }, function(error) {
-          console.error('VixSrc request error:', error);
-          _this.empty();
-        }, false, {
-          dataType: 'text',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Referer': 'https://vixsrc.to/'
-          }
-        });
-      } else {
-        this.empty();
-      }
+        // For VixSrc, we create a direct embed URL
+        var vixsrcUrl = this.requestParams(url);
+        var videos = [{
+          method: 'play',
+          url: vixsrcUrl,
+          title: object.movie.title || object.movie.name,
+          quality: {},
+          season: object.season || 1,
+          episode: object.episode || 1
+        }];
+        this.display(videos);
+        clearTimeout(number_of_requests_timer);
+        number_of_requests_timer = setTimeout(function() {
+          number_of_requests = 0;
+        }, 4000);
+      } else this.empty();
     };
-
-    this.extractVideoData = function(html) {
+    this.parseJsonDate = function(str, name) {
       try {
-        var videoData = {};
-        
-        // Extract window.streams
-        var streamsMatch = html.match(/window\.streams\s*=\s*(\[.*?\]);/s);
-        if (streamsMatch) {
-          videoData.streams = JSON.parse(streamsMatch[1]);
-        }
-        
-        // Extract window.masterPlaylist
-        var masterPlaylistMatch = html.match(/window\.masterPlaylist\s*=\s*(\{.*?\});/s);
-        if (masterPlaylistMatch) {
-          videoData.masterPlaylist = JSON.parse(masterPlaylistMatch[1]);
-        }
-        
-        // Extract window.video
-        var videoMatch = html.match(/window\.video\s*=\s*(\{.*?\});/s);
-        if (videoMatch) {
-          videoData.video = JSON.parse(videoMatch[1]);
-        }
-        
-        return videoData;
+        var html = $('<div>' + str + '</div>');
+        var elems = [];
+        html.find(name).each(function() {
+          var item = $(this);
+          var data = JSON.parse(item.attr('data-json'));
+          var season = item.attr('s');
+          var episode = item.attr('e');
+          var text = item.text();
+          if (!object.movie.name) {
+            if (text.match(/\d+p/i)) {
+              if (!data.quality) {
+                data.quality = {};
+                data.quality[text] = data.url;
+              }
+              text = object.movie.title;
+            }
+            if (text == 'По умолчанию') {
+              text = object.movie.title;
+            }
+          }
+          if (episode) data.episode = parseInt(episode);
+          if (season) data.season = parseInt(season);
+          if (text) data.text = text;
+          data.active = item.hasClass('active');
+          elems.push(data);
+        });
+        return elems;
       } catch (e) {
-        console.error('Error extracting video data:', e);
-        return null;
+        return [];
       }
     };
-
     this.getFileUrl = function(file, call) {
       var _this = this;
       
-      if (Lampa.Storage.field('player') !== 'inner' && file.stream && Lampa.Platform.is('apple')) {
-        var newfile = Lampa.Arrays.clone(file);
-        newfile.method = 'play';
-        newfile.url = file.stream;
-        call(newfile, {});
-      }
-      else if (file.method == 'stream') {
-        // Handle VixCloud stream URLs
-        _this.getVixCloudUrl(file, function(streamData) {
-          var playFile = Lampa.Arrays.clone(file);
-          playFile.method = 'play';
-          playFile.url = streamData.url;
-          playFile.headers = streamData.headers || {};
-          call(playFile, streamData);
-        }, function(error) {
-          console.error('Failed to get VixCloud URL:', error);
-          call(file, {});
-        });
+      if(Lampa.Storage.field('player') !== 'inner' && file.stream && Lampa.Platform.is('apple')){
+          var newfile = Lampa.Arrays.clone(file);
+          newfile.method = 'play';
+          newfile.url = file.stream;
+          call(newfile, {});
       }
       else if (file.method == 'play') {
+        // For VixSrc, the URL is already the embed URL
         call(file, {});
       }
       else {
+        // VixSrc URLs are direct embed URLs, no need for additional processing
         call(file, {});
-      }
-    };
-    this.getVixCloudUrl = function(file, success, error) {
-      try {
-        var streamUrl = file.stream_url || file.url;
-        
-        // If we have auth parameters from masterPlaylist, use the master URL with auth
-        if (file.auth_params && file.master_url) {
-          var authUrl = file.master_url;
-          var params = [];
-          
-          for (var key in file.auth_params) {
-            if (file.auth_params[key]) {
-              params.push(key + '=' + encodeURIComponent(file.auth_params[key]));
-            }
-          }
-          
-          if (params.length > 0) {
-            authUrl += (authUrl.indexOf('?') > -1 ? '&' : '?') + params.join('&');
-          }
-          
-          // Fetch the master playlist to get the actual stream URL
-          network.native(authUrl, function(playlistData) {
-            try {
-              // Parse M3U8 playlist to get the best quality stream
-              var streamUrl = _this.parseM3U8Playlist(playlistData, authUrl);
-              
-              success({
-                url: streamUrl,
-                headers: {
-                  'Referer': 'https://vixsrc.to/',
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-              });
-            } catch (e) {
-              console.error('Error parsing playlist:', e);
-              // Fallback to original stream URL
-              success({
-                url: streamUrl,
-                headers: {
-                  'Referer': 'https://vixsrc.to/',
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-              });
-            }
-          }, function(err) {
-            console.error('Failed to fetch playlist:', err);
-            // Fallback to original stream URL
-            success({
-              url: streamUrl,
-              headers: {
-                'Referer': 'https://vixsrc.to/',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-              }
-            });
-          }, false, {
-            dataType: 'text',
-            headers: {
-              'Referer': 'https://vixsrc.to/',
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-          });
-        } else {
-          // No auth params, use the stream URL directly
-          success({
-            url: streamUrl,
-            headers: {
-              'Referer': 'https://vixsrc.to/',
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-          });
-        }
-      } catch (e) {
-        console.error('VixCloud URL error:', e);
-        error(e);
-      }
-    };
-    this.parseM3U8Playlist = function(playlistContent, baseUrl) {
-      try {
-        var lines = playlistContent.split('\n');
-        var streams = [];
-        var currentStream = {};
-        
-        for (var i = 0; i < lines.length; i++) {
-          var line = lines[i].trim();
-          
-          if (line.startsWith('#EXT-X-STREAM-INF:')) {
-            // Parse stream info
-            var bandwidth = line.match(/BANDWIDTH=(\d+)/);
-            var resolution = line.match(/RESOLUTION=(\d+x\d+)/);
-            
-            currentStream = {
-              bandwidth: bandwidth ? parseInt(bandwidth[1]) : 0,
-              resolution: resolution ? resolution[1] : '',
-              url: ''
-            };
-          } else if (line && !line.startsWith('#') && currentStream.bandwidth !== undefined) {
-            // This is the URL for the current stream
-            currentStream.url = line.startsWith('http') ? line : new URL(line, baseUrl).href;
-            streams.push(currentStream);
-            currentStream = {};
-          }
-        }
-        
-        // Return the highest bandwidth stream, or the playlist URL if it's a direct stream
-        if (streams.length > 0) {
-          streams.sort(function(a, b) { return b.bandwidth - a.bandwidth; });
-          return streams[0].url;
-        } else {
-          // If no streams found, return the base URL (might be a direct stream)
-          return baseUrl;
-        }
-      } catch (e) {
-        console.error('M3U8 parsing error:', e);
-        return baseUrl;
       }
     };
     this.toPlayElement = function(file) {
