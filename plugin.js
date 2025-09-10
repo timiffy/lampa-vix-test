@@ -268,8 +268,7 @@
      */
     // Update the PROXY_URL format
     
-
-    var PROXY_URL = 'https://frplma.vercel.app/api/proxy?url='; // Updated to use Vercel proxy
+    var PROXY_BASE = 'https://frplma.vercel.app/api/proxy/';
 
     // Fix the search and find functions
     this.search = function() {
@@ -308,14 +307,14 @@
         // Create the VixSrc URL for the first episode/movie to get available content
         var vixsrcUrl = this.getVixSrcUrl(movieId, season, 1);
         
-        // Use Vercel proxy with proper URL encoding
-        var proxyUrl = PROXY_URL + encodeURIComponent(vixsrcUrl);
+        // Use proxy with query parameter format
+        var proxyUrl = PROXY_BASE + vixsrcUrl.replace(/^https?:\/\//, '');
         
-        console.log('Fetching from Vercel proxy:', proxyUrl);
+        console.log('Fetching from dynamic proxy:', proxyUrl);
         
         network.native(proxyUrl, function(html) {
           try {
-            console.log('Got HTML response from Vercel proxy, length:', html.length);
+            console.log('Got HTML response, length:', html.length);
             
             // Create videos array with proper structure for the filter system
             var videos = [];
@@ -368,7 +367,7 @@
           
           _this.loading(false);
         }, function(error) {
-          console.error('VixSrc request error with Vercel proxy:', error);
+          console.error('VixSrc request error:', error);
           _this.empty();
           _this.loading(false);
         }, false, {
@@ -425,7 +424,7 @@
       }
     };
 
-    // Updated getFileUrl to handle per-episode URLs for TV shows with Vercel proxy
+    // Updated getFileUrl to handle per-episode URLs for TV shows
     this.getFileUrl = function(file, call) {
       var _this = this;
       
@@ -440,9 +439,9 @@
       if (file.method == 'play') {
         // Generate the correct VixSrc URL for this specific content
         var vixsrcUrl = this.getVixSrcUrl(file.movieId, file.season, file.episode);
-        var proxyUrl = PROXY_URL + encodeURIComponent(vixsrcUrl);
+        var proxyUrl = PROXY_BASE + vixsrcUrl.replace(/^https?:\/\//, '');
         
-        console.log('Fetching content URL via Vercel proxy:', proxyUrl);
+        console.log('Fetching content URL via dynamic proxy:', proxyUrl);
         
         network.native(proxyUrl, function(html) {
           var playlistUrl = _this.extractPlaylistUrl(html);
@@ -450,19 +449,16 @@
           if (playlistUrl) {
             console.log('Got playlist URL:', playlistUrl);
             var playFile = Lampa.Arrays.clone(file);
+            playFile.url = PROXY_BASE + playlistUrl.replace(/^https?:\/\//, '');
+            console.log('About to play final URL via dynamic proxy:', playFile.url);
             
-            // Use Vercel proxy for the final video stream URL as well
-            playFile.url = PROXY_URL + encodeURIComponent(playlistUrl);
-            console.log('About to play final URL via Vercel proxy:', playFile.url);
-            
-            // Call without custom headers since the Vercel proxy handles them
             call(playFile, {});
           } else {
             console.error('Could not get playlist URL');
             call(file, {});
           }
         }, function(error) {
-          console.error('Error fetching content via Vercel proxy:', error);
+          console.error('Error fetching content via dynamic proxy:', error);
           call(file, {});
         }, false, {
           dataType: 'text'
