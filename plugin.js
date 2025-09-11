@@ -457,8 +457,8 @@
         
         console.log('Fetching content URL via dynamic proxy:', proxyUrl);
         
-        network.native(proxyUrl, function(html) {
-          var playlistUrl = _this.extractPlaylistUrl(html);
+        network.native(proxyUrl, function(response) {
+          var playlistUrl = _this.extractPlaylistUrl(response);
           
           if (playlistUrl) {
             console.log('Got playlist URL:', playlistUrl);
@@ -475,7 +475,7 @@
           console.error('Error fetching content via dynamic proxy:', error);
           call(file, {});
         }, false, {
-          dataType: 'text'
+          dataType: 'json'
         });
       } else {
         call(file, {});
