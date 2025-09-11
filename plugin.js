@@ -514,7 +514,7 @@
         }
       }
     };
-    
+
     this.display = function(videos) {
       var _this5 = this;
       this.draw(videos, {
@@ -575,7 +575,7 @@
                 var element = first;
                 element.isonline = true;
 
-                // ===== ADD XHR INTERCEPT HERE =====
+                // ===== UPDATED XHR INTERCEPT TO USE YOUR PROXY =====
                 // Store original XHR
                 const originalXHROpen = XMLHttpRequest.prototype.open;
 
@@ -583,20 +583,33 @@
                 XMLHttpRequest.prototype.open = function(method, url, ...args) {
                   let modifiedUrl = url;
                   
-                  // Handle direct vixsrc.to requests (audio/subtitle playlists)
-                  if (typeof url === 'string' && url.includes('vixsrc.to') && !url.includes('vix.blumbergos2.workers.dev')) {
-                    modifiedUrl = `https://vix.blumbergos2.workers.dev/video.m3u8?url=${encodeURIComponent(url)}`;
-                    console.log(`[XHR Intercept] Redirected: ${url} -> ${modifiedUrl}`);
+                  // Handle direct vixsrc.to requests (audio/subtitle playlists) - USE YOUR PROXY
+                  if (typeof url === 'string' && url.includes('vixsrc.to') && !url.includes('frplma.vercel.app/proxy/')) {
+                    modifiedUrl = PROXY_BASE + url.replace(/^https?:\/\//, '');
+                    console.log(`[XHR Intercept] Redirected via your proxy: ${url} -> ${modifiedUrl}`);
                   }
-                  // Handle enc.key requests
+                  // Handle enc.key requests - USE YOUR PROXY  
                   else if (typeof url === 'string' && url.includes('enc.key')) {
-                    modifiedUrl = 'https://vix.blumbergos2.workers.dev/storage/enc.key';
-                    console.log(`[XHR Intercept] Redirected enc.key: ${url} -> ${modifiedUrl}`);
+                    // Extract the full enc.key URL and proxy it
+                    if (url.startsWith('http')) {
+                      modifiedUrl = PROXY_BASE + url.replace(/^https?:\/\//, '');
+                    } else {
+                      // Relative URL, assume it's from vixsrc.to
+                      modifiedUrl = PROXY_BASE + 'vixsrc.to' + (url.startsWith('/') ? url : '/' + url);
+                    }
+                    console.log(`[XHR Intercept] Redirected enc.key via your proxy: ${url} -> ${modifiedUrl}`);
+                  }
+                  // Handle any other vix-related requests
+                  else if (typeof url === 'string' && (url.includes('vix') || url.includes('enc.')) && !url.includes('frplma.vercel.app')) {
+                    if (url.startsWith('http')) {
+                      modifiedUrl = PROXY_BASE + url.replace(/^https?:\/\//, '');
+                      console.log(`[XHR Intercept] Redirected other request via your proxy: ${url} -> ${modifiedUrl}`);
+                    }
                   }
                   
                   return originalXHROpen.call(this, method, modifiedUrl, ...args);
                 };
-                // ===== END XHR INTERCEPT =====
+                // ===== END UPDATED XHR INTERCEPT =====
 
                 // Simplified player launch - let Lampa handle the HLS
                 if (element.url.endsWith('.m3u8')) {
