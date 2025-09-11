@@ -278,11 +278,11 @@
       }, this.getChoice());
       this.find();
     };
-
+    
     this.find = function() {
       this.request();
     };
-
+    
     // Generate the correct VixSrc URL based on content type
     this.getVixSrcUrl = function(movieId, season, episode) {
       if (season && episode && object.movie.name) {
@@ -293,7 +293,7 @@
         return 'https://vixsrc.to/movie/' + movieId;
       }
     };
-
+    
     // Completely rewrite the request function
     this.request = function() {
       var _this = this;
@@ -377,8 +377,8 @@
         this.empty();
       }
     };
-
-    // Updated extractPlaylistUrl with the exact regex from the working implementation
+    
+    // Updated extractPlaylistUrl with simplified URL parsing
     this.extractPlaylistUrl = function(html) {
       try {
         console.log('Attempting to extract playlist URL from HTML...');
@@ -399,31 +399,45 @@
         var basePlaylistUrl = playlistData[3];
         var canPlayFHD = playlistData[4];
         
-        console.log('Extracted data:', {token, expires, basePlaylistUrl, canPlayFHD});
+        console.log('Extracted data:', {token: token, expires: expires, basePlaylistUrl: basePlaylistUrl, canPlayFHD: canPlayFHD});
         
-        // Parse the URL and add parameters exactly like the working implementation
-        var url = new URL(basePlaylistUrl);
-        var b = url.searchParams.get('b');
+        // Parse URL manually instead of using URL constructor
+        var urlParts = basePlaylistUrl.split('?');
+        var baseUrl = urlParts[0];
+        var existingParams = urlParts[1] || '';
         
-        // Add authentication parameters
-        url.searchParams.set('token', token);
-        url.searchParams.set('expires', expires);
+        // Extract existing 'b' parameter if it exists
+        var bParam = '';
+        if (existingParams) {
+          var params = existingParams.split('&');
+          for (var i = 0; i < params.length; i++) {
+            if (params[i].startsWith('b=')) {
+              bParam = '&' + params[i];
+              break;
+            }
+          }
+        }
         
-        if (b !== null) {
-          url.searchParams.set('b', b);
+        // Build the final URL with parameters
+        var finalUrl = baseUrl + '?token=' + encodeURIComponent(token) + 
+                       '&expires=' + encodeURIComponent(expires);
+        
+        if (bParam) {
+          finalUrl += bParam;
         }
         
         if (canPlayFHD === 'true') {
-          url.searchParams.set('h', '1');
+          finalUrl += '&h=1';
         }
         
-        return url.toString();
+        console.log('Final playlist URL:', finalUrl);
+        return finalUrl;
       } catch (e) {
         console.error('Error extracting playlist URL:', e);
         return null;
       }
     };
-
+    
     // Updated getFileUrl to handle per-episode URLs for TV shows
     this.getFileUrl = function(file, call) {
       var _this = this;
@@ -467,7 +481,7 @@
         call(file, {});
       }
     };
-
+    
     this.toPlayElement = function(file) {
       var play = {
         title: file.title,
@@ -479,7 +493,7 @@
       };
       return play;
     };
-
+    
     this.orUrlReserve = function(data) {
       if (data.url && typeof data.url == 'string' && data.url.indexOf(" or ") !== -1) {
         var urls = data.url.split(" or ");
@@ -487,7 +501,7 @@
         data.url_reserve = urls[1];
       }
     };
-
+    
     this.setDefaultQuality = function(data) {
       if (Lampa.Arrays.getKeys(data.quality).length) {
         for (var q in data.quality) {
@@ -500,7 +514,7 @@
         }
       }
     };
-
+    
     this.display = function(videos) {
       var _this5 = this;
       this.draw(videos, {
@@ -1515,6 +1529,5 @@
   if (!window.vixsrc_plugin) startPlugin();
 
 })();
-
 
 
