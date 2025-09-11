@@ -268,7 +268,7 @@
      */
     // Update the PROXY_URL format
     
-    var PROXY_BASE = 'https://frplma.vercel.app/api/proxy/';
+    var PROXY_BASE = 'https://frplma.vercel.app/proxy/';
 
     // Fix the search and find functions
     this.search = function() {
@@ -1515,5 +1515,6 @@
   if (!window.vixsrc_plugin) startPlugin();
 
 })();
+
 
 
