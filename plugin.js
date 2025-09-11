@@ -577,6 +577,61 @@
 
     this.display = function(videos) {
       var _this5 = this;
+      
+      // ===== SET UP HLS.JS PROXY CONFIGURATION BEFORE ANY PLAYER LAUNCH =====
+      // Store original Hls config
+      let originalHlsConfig = null;
+      
+      // Intercept Hls constructor to inject our proxy config
+      if (window.Hls && window.Hls.isSupported()) {
+        const OriginalHls = window.Hls;
+        
+        window.Hls = function(config = {}) {
+          // Inject our xhrSetup to proxy all HLS requests
+          config.xhrSetup = function(xhr, url) {
+            let modifiedUrl = url;
+            
+            console.log(`[HLS XHR Setup] Original URL: ${url}`);
+            
+            // Handle enc.key requests - these need special handling
+            if (url.includes('enc.key')) {
+              if (url.endsWith('/storage/enc.key') || url.endsWith('enc.key')) {
+                // Convert relative or partial URLs to full vixsrc.to URLs
+                modifiedUrl = 'https://vixsrc.to/storage/enc.key';
+              }
+              modifiedUrl = PROXY_BASE + modifiedUrl.replace(/^https?:\/\//, '');
+              console.log(`[HLS XHR Setup] enc.key proxied: ${url} -> ${modifiedUrl}`);
+            }
+            // Handle .ts segment requests
+            else if (url.includes('.ts')) {
+              if (!url.includes('frplma.vercel.app/proxy/')) {
+                modifiedUrl = PROXY_BASE + url.replace(/^https?:\/\//, '');
+                console.log(`[HLS XHR Setup] .ts segment proxied: ${url} -> ${modifiedUrl}`);
+              }
+            }
+            // Handle vixcloud.co or vixsrc.to requests
+            else if ((url.includes('vixcloud.co') || url.includes('vixsrc.to')) && !url.includes('frplma.vercel.app/proxy/')) {
+              modifiedUrl = PROXY_BASE + url.replace(/^https?:\/\//, '');
+              console.log(`[HLS XHR Setup] vixcloud/vixsrc proxied: ${url} -> ${modifiedUrl}`);
+            }
+            
+            xhr.open('GET', modifiedUrl, true);
+            
+            // Set additional headers for better compatibility
+            xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+            xhr.setRequestHeader('Referer', 'https://vixsrc.to/');
+          };
+          
+          console.log('[HLS Config] Configured HLS.js with proxy xhrSetup');
+          return new OriginalHls(config);
+        };
+        
+        // Copy static methods
+        Object.setPrototypeOf(window.Hls, OriginalHls);
+        Object.assign(window.Hls, OriginalHls);
+      }
+      // ===== END HLS.JS CONFIGURATION =====
+    
       this.draw(videos, {
         onEnter: function onEnter(item, html) {
           _this5.getFileUrl(item, function(json, json_call) {
@@ -634,60 +689,13 @@
                 console.log('About to play:', first.url);
                 var element = first;
                 element.isonline = true;
-
-                // ===== UPDATED XHR INTERCEPT TO USE YOUR PROXY =====
-                // Store original XHR
-                const originalXHROpen = XMLHttpRequest.prototype.open;
-
-                // Intercept all XHR requests
-                XMLHttpRequest.prototype.open = function(method, url, ...args) {
-                  let modifiedUrl = url;
-                  
-                  // Handle direct vixsrc.to requests (audio/subtitle playlists) - USE YOUR PROXY
-                  if (typeof url === 'string' && url.includes('vixsrc.to') && !url.includes('frplma.vercel.app/proxy/')) {
-                    modifiedUrl = PROXY_BASE + url.replace(/^https?:\/\//, '');
-                    console.log(`[XHR Intercept] Redirected via your proxy: ${url} -> ${modifiedUrl}`);
-                  }
-                  // Handle enc.key requests - USE YOUR PROXY  
-                  else if (typeof url === 'string' && url.includes('enc.key')) {
-                    // Extract the full enc.key URL and proxy it
-                    if (url.startsWith('http')) {
-                      modifiedUrl = PROXY_BASE + url.replace(/^https?:\/\//, '');
-                    } else {
-                      // Relative URL, assume it's from vixsrc.to
-                      modifiedUrl = PROXY_BASE + 'vixsrc.to' + (url.startsWith('/') ? url : '/' + url);
-                    }
-                    console.log(`[XHR Intercept] Redirected enc.key via your proxy: ${url} -> ${modifiedUrl}`);
-                  }
-                  // Handle any other vix-related requests
-                  else if (typeof url === 'string' && (url.includes('vix') || url.includes('enc.')) && !url.includes('frplma.vercel.app')) {
-                    if (url.startsWith('http')) {
-                      modifiedUrl = PROXY_BASE + url.replace(/^https?:\/\//, '');
-                      console.log(`[XHR Intercept] Redirected other request via your proxy: ${url} -> ${modifiedUrl}`);
-                    }
-                  }
-                  
-                  return originalXHROpen.call(this, method, modifiedUrl, ...args);
-                };
-                // ===== END UPDATED XHR INTERCEPT =====
-
-                // Simplified player launch - let Lampa handle the HLS
-                if (element.url.endsWith('.m3u8')) {
-                  console.log('Detected HLS stream, launching player');
-                  Lampa.Player.play(element);
-                } else {
-                  Lampa.Player.play(element);
-                }
-                
+    
+                // Launch player - HLS.js will now use our proxy configuration
+                console.log('Launching player with proxied HLS.js configuration');
+                Lampa.Player.play(element);
                 Lampa.Player.playlist(playlist);
                 item.mark();
                 _this5.updateBalanser(balanser);
-
-                // Optional: Restore original XHR after a delay
-                setTimeout(() => {
-                  XMLHttpRequest.prototype.open = originalXHROpen;
-                  console.log('[XHR Intercept] Restored original XHR');
-                }, 30000); // 30 seconds should be enough for the stream to start
                 
               } else {
                 Lampa.Noty.show(Lampa.Lang.translate('lampac_nolink'));
