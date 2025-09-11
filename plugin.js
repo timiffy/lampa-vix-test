@@ -378,58 +378,91 @@
       }
     };
     
-    // Updated extractPlaylistUrl with simplified URL parsing
-    this.extractPlaylistUrl = function(html) {
+    // Helper: safely unescape JS-encoded JSON/HTML content like "\/" and "\u0026"
+    function unescapeJsString(s) {
+      if (!s || typeof s !== 'string') return s;
+      // replace \/ and \u0026, and other common JS escapes
+      return s.replace(/\\\//g, '/').replace(/\\u0026/g, '&').replace(/\\n/g, '\n').replace(/\\'/g, "'").replace(/\\"/g, '"');
+    }
+
+    // Parse the page HTML to find window.streams and window.masterPlaylist
+    function parsePlaylistFromHtml(html) {
       try {
-        console.log('Attempting to extract playlist URL from HTML...');
-        
-        // Use the exact regex from the working implementation
-        var regex = /token': '(.+)',\n[ ]+'expires': '(.+)',\n.+\n.+\n.+url: '(.+)',\n[ ]+}\n[ ]+window.canPlayFHD = (false|true)/;
-        var playlistData = regex.exec(html);
-        
-        if (!playlistData) {
-          console.error('Could not extract playlist data');
-          // Debug: log a sample of the HTML to see the structure
-          console.log('HTML sample:', html.substring(0, 2000));
-          return null;
-        }
-        
-        var token = playlistData[1];
-        var expires = playlistData[2];
-        var basePlaylistUrl = playlistData[3];
-        var canPlayFHD = playlistData[4];
-        
-        console.log('Extracted data:', {token: token, expires: expires, basePlaylistUrl: basePlaylistUrl, canPlayFHD: canPlayFHD});
-        
-        // Parse URL manually instead of using URL constructor
-        var urlParts = basePlaylistUrl.split('?');
-        var baseUrl = urlParts[0];
-        var existingParams = urlParts[1] || '';
-        
-        // Extract existing 'b' parameter if it exists
-        var bParam = '';
-        if (existingParams) {
-          var params = existingParams.split('&');
-          for (var i = 0; i < params.length; i++) {
-            if (params[i].startsWith('b=')) {
-              bParam = '&' + params[i];
-              break;
-            }
+        // Normalize escaped sequences \u0026 and \/ etc.
+        const cleanHtml = unescapeJsString(html);
+
+        // Try to extract window.streams JSON block
+        let streamsMatch = cleanHtml.match(/window\.streams\s*=\s*(\[[\s\S]*?\]);/);
+        let masterMatch = cleanHtml.match(/window\.masterPlaylist\s*=\s*(\{[\s\S]*?\});/);
+        let canPlayFHDMatch = cleanHtml.match(/window\.canPlayFHD\s*=\s*(true|false)/);
+
+        let streams = null;
+        let master = null;
+        let canPlayFHD = false;
+
+        if (streamsMatch && streamsMatch[1]) {
+          try {
+            streams = JSON.parse(streamsMatch[1]);
+          } catch (e) {
+            // As fallback, attempt manual cleanup and parse
+            const s = streamsMatch[1].replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":'); // rough key-quote
+            streams = JSON.parse(s);
           }
         }
-        
-        // Build the final URL with parameters
-        var finalUrl = baseUrl + '?token=' + encodeURIComponent(token) + 
-                       '&expires=' + encodeURIComponent(expires);
-        
-        if (bParam) {
-          finalUrl += bParam;
+
+        if (masterMatch && masterMatch[1]) {
+          try {
+            master = JSON.parse(masterMatch[1]);
+          } catch (e) {
+            // Manual cleanup fallback
+            const m = masterMatch[1].replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":');
+            master = JSON.parse(m);
+          }
         }
-        
-        if (canPlayFHD === 'true') {
+
+        if (canPlayFHDMatch) {
+          canPlayFHD = (canPlayFHDMatch[1] === 'true');
+        }
+
+        return { streams, master, canPlayFHD };
+      } catch (e) {
+        console.error('parsePlaylistFromHtml error', e);
+        return null;
+      }
+    }
+
+    this.extractPlaylistUrl = function(html) {
+      try {
+        console.log('Attempting to extract playlist data...');
+    
+        // Grab the streams block
+        const streamsMatch = html.match(/window\.streams\s*=\s*(\[.*?\]);/s);
+        const playlistMatch = html.match(/window\.masterPlaylist\s*=\s*({.*?});/s);
+        const fhdMatch = html.match(/window\.canPlayFHD\s*=\s*(true|false)/);
+    
+        if (!streamsMatch || !playlistMatch) {
+          console.error('Could not extract streams or masterPlaylist');
+          return null;
+        }
+    
+        const streams = JSON.parse(streamsMatch[1]);
+        const masterPlaylist = JSON.parse(playlistMatch[1].replace(/'/g, '"'));
+        const canPlayFHD = fhdMatch ? fhdMatch[1] === 'true' : false;
+    
+        // Pick first working server
+        let baseUrl = streams[0].url; // e.g. vixcloud.co/playlist/...
+        let token = masterPlaylist.params.token;
+        let expires = masterPlaylist.params.expires;
+    
+        let finalUrl = baseUrl + 
+          (baseUrl.includes('?') ? '&' : '?') +
+          'token=' + encodeURIComponent(token) +
+          '&expires=' + encodeURIComponent(expires);
+    
+        if (canPlayFHD) {
           finalUrl += '&h=1';
         }
-        
+    
         console.log('Final playlist URL:', finalUrl);
         return finalUrl;
       } catch (e) {
@@ -441,7 +474,7 @@
     // Updated getFileUrl to handle per-episode URLs for TV shows
     this.getFileUrl = function(file, call) {
       var _this = this;
-      
+    
       if (Lampa.Storage.field('player') !== 'inner' && file.stream && Lampa.Platform.is('apple')) {
         var newfile = Lampa.Arrays.clone(file);
         newfile.method = 'play';
@@ -449,33 +482,60 @@
         call(newfile, {});
         return;
       }
-      
+    
       if (file.method == 'play') {
-        // Generate the correct VixSrc URL for this specific content
         var vixsrcUrl = this.getVixSrcUrl(file.movieId, file.season, file.episode);
         var proxyUrl = PROXY_BASE + vixsrcUrl.replace(/^https?:\/\//, '');
-        
-        console.log('Fetching content URL via dynamic proxy:', proxyUrl);
-        
-        network.native(proxyUrl, function(response) {
-          var playlistUrl = _this.extractPlaylistUrl(response);
-          
-          if (playlistUrl) {
-            console.log('Got playlist URL:', playlistUrl);
+    
+        console.log('Fetching content via dynamic proxy (text):', proxyUrl);
+    
+        // Request text so we can handle either JSON or HTML payloads
+        network.native(proxyUrl, function(responseText) {
+          try {
+            // Try to parse as JSON first (some proxies return JSON)
+            var maybeObj = null;
+            try {
+              maybeObj = JSON.parse(responseText);
+            } catch (e) {
+              maybeObj = null;
+            }
+    
+            // If proxy returned JSON with a streamUrl, use it directly
+            if (maybeObj && maybeObj.streamUrl) {
+              var playFile = Lampa.Arrays.clone(file);
+              // Ensure proxied final URL goes through your proxy so browser doesn't hit vixcloud directly
+              playFile.url = PROXY_BASE + maybeObj.streamUrl.replace(/^https?:\/\//, '');
+              console.log('Using proxy-provided streamUrl (JSON):', playFile.url);
+              call(playFile, maybeObj);
+              return;
+            }
+    
+            // Else, responseText was probably HTML - extract using extractPlaylistUrl
+            var playlistUrl = _this.extractPlaylistUrl(responseText);
+    
+            if (!playlistUrl) {
+              console.error('Could not find playlist URL in proxy response');
+              // fallback: return original file to let Lampa handle it (will likely 403)
+              call(file, {});
+              return;
+            }
+    
+            // Proxy the final playlist URL so the player XHRs also go through your proxy
+            var proxiedFinal = PROXY_BASE + playlistUrl.replace(/^https?:\/\//, '');
             var playFile = Lampa.Arrays.clone(file);
-            playFile.url = PROXY_BASE + playlistUrl.replace(/^https?:\/\//, '');
-            console.log('About to play final URL via dynamic proxy:', playFile.url);
-            
+            playFile.url = proxiedFinal;
+    
+            console.log('Got playlist URL -> proxiedFinal:', proxiedFinal);
             call(playFile, {});
-          } else {
-            console.error('Could not get playlist URL');
+          } catch (err) {
+            console.error('getFileUrl parse error', err);
             call(file, {});
           }
         }, function(error) {
           console.error('Error fetching content via dynamic proxy:', error);
           call(file, {});
         }, false, {
-          dataType: 'json'
+          dataType: 'text'
         });
       } else {
         call(file, {});
